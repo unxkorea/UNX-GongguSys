@@ -2797,10 +2797,11 @@
       list.innerHTML = countHtml + currentPhrases.map(p => {
         // [요청] 수정은 alert(prompt) 대신 카드 내부 인라인 폼으로
         if (p.id === editingPhraseId) {
+          // [요청] 메모 수정 textarea 높이 자동 — 저장된 내용 줄 수에 맞춰 rows(최소 4 ~ 최대 30)
           return `
         <div class="phrase-card phrase-editing">
           <input type="text" id="editPhraseTitle-${p.id}" class="phrase-edit-title" placeholder="제목 (선택)" value="${escapeHtml(p.title)}">
-          <textarea id="editPhraseContent-${p.id}" class="phrase-edit-content" rows="7">${escapeHtml(p.content)}</textarea>
+          <textarea id="editPhraseContent-${p.id}" class="phrase-edit-content" rows="${Math.min(Math.max((p.content || '').split('\n').length, 4), 30)}">${escapeHtml(p.content)}</textarea>
           <div class="phrase-actions">
             <button class="btn btn-primary btn-sm" onclick="savePhraseEdit(${p.id})">저장</button>
             <button class="btn btn-outline btn-sm" onclick="cancelPhraseEdit()">취소</button>

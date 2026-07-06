@@ -34,10 +34,12 @@ N명에게서 답장 (M명 거절)
 
 
 
-
 [ 실행계획 ]
 
 [ 작업완료 ]
+## 메모 탭 수정 시 textarea 높이 자동 조절 (26.07.01)
+메모(`data-panel="phrases"`) 탭에서 문구 '수정' 시 인라인 편집 textarea가 `rows="7"` 고정이라 내용 많으면 좁던 문제. 저장된 내용 줄 수에 맞춰 자동 높이. UI 전용([public/index.html](public/index.html)) — 백엔드/repo/스키마 무영향.
+- **[public/index.html:2804](public/index.html#L2804)**: 제조사 메모 자동 높이(26.06.24)와 동일 방식. `<textarea id="editPhraseContent-${p.id}">`의 고정 `rows="7"` → `rows="${Math.min(Math.max((p.content||'').split('\n').length, 4), 30)}"`(최소 4~최대 30). `.phrase-edit-content`는 기존 `resize:vertical` 유지라 사용자가 추가 조절 가능.
 ## 제조사 목록 — 행 클릭 인라인 펼침(읽기 → 수정) + 제조사 메모 textarea 자동 높이 (26.06.24)
 제품관리>제조사목록을 행 클릭으로 그 자리에서 펼쳐 읽고, '수정' 버튼으로 같은 위치에서 편집. 제품 상세의 제조사 메모 textarea는 저장된 줄 수에 맞춰 높이 자동. UI 전용 변경([public/index.html](public/index.html)) — 백엔드/repo/스키마 무영향.
 - **제조사 목록 아코디언**: `renderManufacturers()`를 `.manufacturer-item`(헤더 + 펼침 상세) 구조로 재작성. 헤더(`.manufacturer-head`) 클릭 → `toggleManufacturer(id)`로 한 번에 하나만 펼침(`expandedManufacturerId`). 헤더 우측 액션(협업종료/진행복귀/삭제)은 `event.stopPropagation()`으로 토글과 분리. 기존 행별 '수정' 버튼 제거.
