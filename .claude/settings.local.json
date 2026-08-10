@@ -61,7 +61,8 @@
       "Bash(curl -s -i http://localhost:3000/api/instagram/status)",
       "Bash(node --check src/instagramScraper.js)",
       "Bash(node --check src/instagramSelectors.js)",
-      "Bash(node -e \"const s = require\\('./src/instagramScraper'\\); console.log\\('exports:', Object.keys\\(s\\)\\);\")"
+      "Bash(node -e \"const s = require\\('./src/instagramScraper'\\); console.log\\('exports:', Object.keys\\(s\\)\\);\")",
+      "Bash(git diff *)"
     ]
   }
 }

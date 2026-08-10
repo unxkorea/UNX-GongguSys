@@ -33,10 +33,16 @@ N명에게서 답장 (M명 거절)
 이렇게 표기 하도록
 
 
-
 [ 실행계획 ]
 
 [ 작업완료 ]
+## 제품 관리 목록 — 후킹문구 기본 1개 노출 + 나머지 아코디언 (26.08.07)
+제품관리 > 목록에서 후킹문구가 전부 접혀 있어 눈에 잘 안 들어오던 문제. 1번 문구는 항상 노출(데이터 없으면 빈 칸), 2번째부터만 접기. UI 전용 변경([public/index.html](public/index.html)) — 백엔드/repo/스키마 무영향.
+- **리스트 "첫 줄 + 나머지" 분리** ([public/index.html:1295-1319](public/index.html#L1295-L1319)): 리스트 전체를 `display:none`으로 감싸던 방식 → 인라인 IIFE에서 공통 `row(val, hi, removable)` 헬퍼로 렌더. 1번 행은 항상 표시, `list.slice(1)`만 `display:${hookingOpenIdx.has(i)?'block':'none'}` 블록에 넣고 인덱스는 `k+1`로 보정(`removeHookingPhrase`/`setHookingPhrase` 대상 유지).
+- **빈 데이터도 빈 칸 1개**: 배열이 비면 `value=""`인 1번 행을 렌더하되 삭제(−) 버튼은 숨김. 입력 처리용 `setHookingPhrase(i, hi, value)` 신설([public/index.html:1486](public/index.html#L1486)) — 배열 없으면 생성 후 대입, 빈 상태→1개일 때만 `renderProducts()`로 라벨 `(N개)` 카운트 동기화(그 외엔 재렌더 없이 포커스 유지). dirty 표시는 `productsList`의 기존 input/change 위임 리스너가 처리.
+- **토글 = 하단 전폭 점선 버튼**(결정): 라벨 옆 회색 `▶`(11px) 캐럿 제거 → 리스트 맨 아래 `.hooking-more` 버튼 1개가 토글. 접힘 `+ N개 더 보기`(N=`length-1`) / 펼침 `− 접기`, 2개 미만이면 미렌더. CSS 신설([public/index.html:55-62](public/index.html#L55-L62)) — 점선 테두리·투명 배경(실선 `+ 후킹문구 추가` 버튼과 역할 구분), hover 시 회색 배경/테두리 진해짐.
+- 기존 자동 펼침(`addHookingPhrase`·일괄 입력의 `hookingOpenIdx.add(i)`)은 유지.
+- 검증: 임베디드 `<script>` `vm.Script` 파싱 통과. 실동작은 `npm run ui` 수동 확인(0개/1개/N개).
 ## 메모 탭 수정 시 textarea 높이 자동 조절 (26.07.01)
 메모(`data-panel="phrases"`) 탭에서 문구 '수정' 시 인라인 편집 textarea가 `rows="7"` 고정이라 내용 많으면 좁던 문제. 저장된 내용 줄 수에 맞춰 자동 높이. UI 전용([public/index.html](public/index.html)) — 백엔드/repo/스키마 무영향.
 - **[public/index.html:2804](public/index.html#L2804)**: 제조사 메모 자동 높이(26.06.24)와 동일 방식. `<textarea id="editPhraseContent-${p.id}">`의 고정 `rows="7"` → `rows="${Math.min(Math.max((p.content||'').split('\n').length, 4), 30)}"`(최소 4~최대 30). `.phrase-edit-content`는 기존 `resize:vertical` 유지라 사용자가 추가 조절 가능.

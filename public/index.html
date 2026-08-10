@@ -52,6 +52,17 @@
     .btn-warn:hover { background: #fef3c7; }
     .btn-sm { padding: 5px 12px; font-size: 12px; }
     .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+    /* [요청] 후킹문구 접기/펼치기 — 리스트 하단 전폭 점선 버튼(실선 '추가' 버튼과 구분) */
+    /* [요청] 더보기 버튼 눈에 띄게 — 회색 → 보라 계열 + 굵게 */
+    .hooking-more {
+      width: 100%; padding: 9px; margin: 2px 0 0;
+      background: #f5f3ff; border: 1.5px dashed #a5b4fc; border-radius: 8px;
+      color: #4f46e5; font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .hooking-more:hover { background: #eef2ff; border-color: #6366f1; color: #4338ca; }
+    /* [요청] 후킹문구 블록과 아래 '예시' 영역 사이 여백 */
+    .hooking-list { margin-bottom: 14px; }
 
     /* 입력 필드 */
     input[type="text"], input[type="password"], input[type="search"], textarea, select {
@@ -1283,28 +1294,36 @@
               <!-- [요청] 제품 목록 textarea 높이 고정 — rows 4→15 -->
               <textarea rows="15" onchange="products[${i}].offerMessage=this.value" onclick="event.stopPropagation()">${esc(p.offerMessage)}</textarea>
             </div>
-            <!-- [요청] 제품 목록 필드 확장 — 후킹문구 동적 리스트 / [요청] 후킹문구 아코디언 -->
+            <!-- [요청] 제품 목록 필드 확장 — 후킹문구 동적 리스트 / [요청] 후킹문구 기본 1개 노출 + 나머지 아코디언 -->
             <div class="form-group">
-              <!-- [요청] 후킹문구 라벨 옆 버튼 배치 + 아코디언 헤더 -->
+              <!-- [요청] 후킹문구 라벨 옆 버튼 배치 (아코디언 캐럿은 리스트 하단 '더 보기' 버튼으로 이동) -->
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-                <div style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none" onclick="event.stopPropagation();toggleHookingOpen(${i})">
-                  <span style="font-size:11px;color:#6b7280;display:inline-block;transform:rotate(${hookingOpenIdx.has(i)?'90':'0'}deg);transition:transform 0.15s">▶</span>
-                  <label style="margin:0;cursor:pointer">후킹문구 <span style="font-size:12px;color:#9ca3af">(${(p.hookingPhrases||[]).length}개)</span></label>
-                </div>
+                <label style="margin:0">후킹문구 <span style="font-size:12px;color:#9ca3af">(${(p.hookingPhrases||[]).length}개)</span></label>
                 <div style="display:flex;gap:6px" onclick="event.stopPropagation()">
                   <button class="btn btn-outline btn-sm" onclick="addHookingPhrase(${i})">+ 후킹문구 추가</button>
                   <!-- [요청] 후킹문구 일괄 붙여넣기 -->
                   <button class="btn btn-outline btn-sm" onclick="openHookingModal(${i})">📋 일괄 입력</button>
                 </div>
               </div>
-              <div style="display:${hookingOpenIdx.has(i)?'block':'none'}" onclick="event.stopPropagation()">
-                ${(p.hookingPhrases||[]).map((h, hi) => `
-                  <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
-                    <span style="min-width:24px;color:#6b7280;font-size:13px">${hi+1}.</span>
-                    <input type="text" style="flex:1" value="${esc(h)}" onchange="products[${i}].hookingPhrases[${hi}]=this.value">
-                    <button class="btn btn-danger btn-sm" onclick="removeHookingPhrase(${i},${hi})">−</button>
-                  </div>
-                `).join('')}
+              <div class="hooking-list" onclick="event.stopPropagation()">
+                ${(() => {
+                  // [요청] 후킹문구 기본 1개 노출 — 1번 행은 항상 표시(데이터 없으면 빈 칸), 2번째부터만 접힘
+                  const list = Array.isArray(p.hookingPhrases) ? p.hookingPhrases : [];
+                  const open = hookingOpenIdx.has(i);
+                  const row = (val, hi, removable) => `
+                    <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
+                      <span style="min-width:24px;color:#6b7280;font-size:13px">${hi+1}.</span>
+                      <input type="text" style="flex:1" value="${esc(val)}" onchange="setHookingPhrase(${i},${hi},this.value)">
+                      ${removable ? `<button class="btn btn-danger btn-sm" onclick="removeHookingPhrase(${i},${hi})">−</button>` : ''}
+                    </div>`;
+                  const first = list.length ? row(list[0], 0, true) : row('', 0, false);
+                  const rest = list.slice(1).map((h, k) => row(h, k + 1, true)).join('');
+                  // [요청] 접힘 토글 — 2개 이상일 때만 하단 전폭 점선 버튼 노출
+                  const more = list.length > 1
+                    ? `<button type="button" class="hooking-more" onclick="toggleHookingOpen(${i})">${open ? '− 접기' : '+ ' + (list.length - 1) + '개 더 보기'}</button>`
+                    : '';
+                  return first + `<div style="display:${open ? 'block' : 'none'}">${rest}</div>` + more;
+                })()}
               </div>
               <!-- [요청] 공고 예시 링크 + 예시 주인 계정 2단 -->
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -1313,7 +1332,7 @@
                   <input type="text" value="${esc(p.announceExampleLink || '')}" onchange="products[${i}].announceExampleLink=this.value" onclick="event.stopPropagation()" placeholder="선택">
                 </div>
                 <div class="form-group">
-                  <label>예시 계정</label>
+                  <label>예시 계정 (인포크 발송시 제외하고 발송) </label>
                   <input type="text" value="${esc(p.announceExampleOwner || '')}" onchange="products[${i}].announceExampleOwner=this.value" onclick="event.stopPropagation()" placeholder="선택">
                 </div>
               </div>
@@ -1342,7 +1361,8 @@
             <!-- [요청] 제품 목록 필드 확장 — 메모 -->
             <div class="form-group">
               <label>메모 <span style="font-size:12px;color:#9ca3af">(내부용)</span></label>
-              <textarea rows="3" onchange="products[${i}].memo=this.value" onclick="event.stopPropagation()">${esc(p.memo || '')}</textarea>
+              <!-- [요청] 메모 textarea 높이 자동 — 저장된 내용 줄 수만큼(최소 3 ~ 최대 20) -->
+              <textarea rows="${Math.min(Math.max(String(p.memo || '').split('\n').length, 3), 20)}" onchange="products[${i}].memo=this.value" onclick="event.stopPropagation()">${esc(p.memo || '')}</textarea>
             </div>
             <div class="form-group">
               <label>사진</label>
@@ -1474,6 +1494,15 @@
       products[i].hookingPhrases.splice(hi, 1);
       renderProducts();
       markProductDirty(products[i]);
+    }
+    // [요청] 후킹문구 기본 1개 노출 — 데이터가 없어도 뜨는 빈 1번 칸 입력 처리(배열 없으면 생성)
+    function setHookingPhrase(i, hi, value) {
+      const p = products[i];
+      if (!Array.isArray(p.hookingPhrases)) p.hookingPhrases = [];
+      const wasEmpty = p.hookingPhrases.length === 0;
+      p.hookingPhrases[hi] = value;
+      markProductDirty(p);
+      if (wasEmpty) renderProducts(); // 빈 상태 → 1개: 라벨 (N개) 카운트 동기화
     }
 
     // [요청] 후킹문구 일괄 붙여넣기 — 모달 제어
