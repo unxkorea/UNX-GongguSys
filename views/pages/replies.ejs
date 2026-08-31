@@ -1,0 +1,20 @@
+<!-- ═══ 인포크 확인 ═══ -->
+<div class="panel active" id="panel-replies">
+  <div class="card">
+    <div class="actions-bar">
+      <div class="card-title">인포크 답장 확인</div>
+      <div class="btn-group">
+        <button class="btn btn-success" id="btnCheckReplies" onclick="startCheckReplies()">인포크 답장 확인 시작</button>
+        <button class="btn btn-danger" id="btnStopReplies" onclick="stopCheckReplies()" style="display:none">중지</button>
+        <button class="btn btn-danger" id="btnForceStopReplies" onclick="forceStopCheckReplies()" style="display:none">강제 종료</button>
+      </div>
+    </div>
+    <p style="font-size:13px;color:#6b7280;margin-bottom:12px">각 계정에 로그인하여 새 탭에서 답장 온 메시지(sendbird 뱃지) 개수를 확인합니다. 뱃지 1개 = 1명에게서 답장.</p>
+    <div class="form-group" style="max-width:320px">
+      <label>시작 계정</label>
+      <select id="repliesStartAccount"></select>
+    </div>
+    <div id="repliesResult"></div>
+    <div class="log-area" id="repliesLogArea" style="margin-top:12px">대기 중...\n</div>
+  </div>
+</div>

@@ -20,6 +20,12 @@ module.exports = {
   chat: {
     pageUrl: 'https://business.inpock.co.kr/admin/deal/chat',
     badge: 'div.sendbird-badge',
+    // [요청] 답장확인 '거절' 표시 — 채팅방 1개 단위 + 마지막 메시지 텍스트
+    //        (css-* 해시 클래스는 빌드마다 바뀌므로 sendbird 고정 클래스만 사용)
+    channelPreview: 'div[role="link"]:has(p.sendbird-channel-preview__content__lower__last-message)',
+    lastMessage: 'p.sendbird-channel-preview__content__lower__last-message',
+    // 거절 채팅방의 마지막 메시지 접두어: "(제안 거절) 상대방과 더 이상 대화할 수 없는 채팅방 입니다."
+    rejectPrefix: '(제안 거절)',
   },
 
   // ===== 로그아웃 =====

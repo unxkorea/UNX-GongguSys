@@ -1,0 +1,69 @@
+<!-- [요청] 리드 관리 탭 신설 — 리드 추가/수정 모달 -->
+<!-- [요청] 모달 바깥클릭 닫힘 제거 — ESC/X로만 -->
+<div id="leadModal" class="modal-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:white;border-radius:12px;padding:24px;max-width:640px;width:92%;max-height:90vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px;box-shadow:0 10px 40px rgba(0,0,0,0.2)">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h3 id="leadModalTitle" style="margin:0;font-size:18px">리드 추가</h3>
+      <button class="btn btn-sm" style="background:transparent;color:#6b7280;padding:4px 8px" onclick="closeLeadModal()">✕</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group" style="margin-bottom:0">
+        <label>닉네임 <span style="color:#ef4444">*</span></label>
+        <input id="leadNickname" type="text" placeholder="예: @nickname 또는 인플루언서명">
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>프로필 URL / 이메일</label>
+        <input id="leadProfileUrl" type="text" placeholder="https://... 또는 someone@example.com">
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:0">
+      <label>관심 제품</label>
+      <select id="leadProduct"></select>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+      <div class="form-group" style="margin-bottom:0">
+        <label>관심 연락일</label>
+        <input id="leadRepliedAt" type="date">
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>제안서 발송일</label>
+        <input id="leadProposalSentAt" type="date">
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label>리마인드 필요일 <span style="font-size:11px;color:#9ca3af;font-weight:400">(발송일+3일 자동)</span></label>
+        <input id="leadRemindAt" type="date">
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:end">
+      <div class="form-group" style="margin-bottom:0">
+        <label>최종 결과</label>
+        <select id="leadFinalStatus">
+          <option value="pending">진행 중 (pending)</option>
+          <option value="공구진행">공구진행</option>
+          <option value="거절">거절</option>
+          <option value="무응답">무응답</option>
+        </select>
+      </div>
+      <!-- [요청] 리드 관리 — 카톡전환 체크박스 -->
+      <div class="form-group" style="margin-bottom:0">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb">
+          <input id="leadCollabConverted" type="checkbox" style="width:18px;height:18px;cursor:pointer">
+          <span>카톡전환</span>
+          <span style="font-size:11px;color:#9ca3af;font-weight:400">(카톡방 생성)</span>
+        </label>
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:0">
+      <label>어울릴만한 제품 <span style="font-size:11px;color:#9ca3af;font-weight:400">(자유 입력 — 포맷 추후 결정)</span></label>
+      <textarea id="leadSuitableNote" rows="2" placeholder="예: ABC제품, XYZ제품"></textarea>
+    </div>
+    <div class="form-group" style="margin-bottom:0">
+      <label>메모</label>
+      <textarea id="leadNotes" rows="3" placeholder="자유 메모"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
+      <button class="btn btn-outline btn-sm" onclick="closeLeadModal()">취소</button>
+      <button class="btn btn-primary btn-sm" onclick="saveLead()">저장</button>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,130 @@
+<!-- ═══ 계정 관리 (설정) ═══ -->
+<div class="panel active" id="panel-accounts">
+  <!-- [요청] 메일 발송 설정 -->
+  <div class="card">
+    <div class="card-title">메일 발송 설정</div>
+    <div class="form-group" style="max-width:400px">
+      <label>참조자 이메일 (BCC) — 모든 메일 발송 시 숨은 참조로 추가됩니다</label>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="settingsMailBcc" placeholder="예: name@company.com">
+        <button class="btn btn-primary btn-sm" onclick="saveSettings()" style="white-space:nowrap">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- [요청] 추천 카탈로그 페이지 — 공개 URL 기본 도메인 -->
+  <div class="card">
+    <div class="card-title">추천 카탈로그 공개 URL</div>
+    <div class="form-group" style="max-width:560px">
+      <label>Vercel 배포 도메인 — 공유 링크 생성 시 이 도메인이 쓰입니다 (비우면 현재 호스트의 <code>/recommend/</code>)</label>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="settingsCatalogBaseUrl" placeholder="예: https://my-catalog.vercel.app/">
+        <button class="btn btn-primary btn-sm" onclick="saveCatalogBaseUrl()" style="white-space:nowrap">저장</button>
+      </div>
+      <div style="font-size:12px;color:#94a3b8;margin-top:6px">
+        * 끝에 슬래시 자동 추가됨. 미설정 시 로컬 테스트용 URL이 발급됨.
+      </div>
+    </div>
+  </div>
+
+  <!-- [요청] 외부 배포 — 보안·실행 설정 -->
+  <div class="card">
+    <div class="card-title">외부 접속·실행 설정</div>
+    <div class="form-group" style="max-width:460px">
+      <label>관리 UI 비밀번호 — 빈값이면 인증 비활성 (로컬 전용 운영 시)</label>
+      <div style="display:flex;gap:8px">
+        <input type="password" id="settingsAdminPassword" placeholder="새 비밀번호 (변경하지 않으려면 빈 값)" autocomplete="new-password">
+        <button class="btn btn-primary btn-sm" onclick="saveAdminPassword()" style="white-space:nowrap">변경</button>
+      </div>
+      <div style="font-size:12px;color:#94a3b8;margin-top:6px">
+        * 저장하면 기존 세션은 유지되지만, 외부에서 처음 접속하는 사용자는 로그인이 필요합니다.<br>
+        * 비밀번호를 **빈값**으로 저장하면 인증이 꺼집니다.
+      </div>
+    </div>
+    <div class="form-group" style="max-width:460px;margin-top:12px">
+      <label>
+        <input type="checkbox" id="settingsHeadless">
+        Headless 모드로 실행 (외부에서 발송 트리거 시 이 PC에 크롬창을 띄우지 않음)
+      </label>
+      <div style="display:flex;gap:8px;margin-top:6px">
+        <button class="btn btn-primary btn-sm" onclick="saveHeadless()" style="white-space:nowrap">저장</button>
+      </div>
+    </div>
+    <div class="form-group" style="max-width:460px;margin-top:16px">
+      <button class="btn btn-outline btn-sm" onclick="doLogout()" id="logoutBtn" style="display:none">로그아웃</button>
+    </div>
+  </div>
+
+  <!-- [요청] 인스타분석 계정 — 인스타그램 릴스 통계 조회용 별도 계정 -->
+  <div class="card">
+    <div class="card-title">인스타분석 계정</div>
+    <p style="font-size:12px;color:#6b7280;margin-bottom:12px">
+      📊 인스타분석 탭에서 사용. 인포크/Gmail 계정과 분리된 인스타 전용 계정 1개 권장.<br>
+      ⚠ 너무 잦은 분석은 인스타 계정 잠김 위험이 있으니 적당히 사용해주세요.
+    </p>
+    <div class="form-group" style="max-width:460px">
+      <label>인스타 ID</label>
+      <input type="text" id="settingsInstagramUsername" placeholder="예: undefiance_insta">
+    </div>
+    <div class="form-group" style="max-width:460px">
+      <label>인스타 비밀번호</label>
+      <input type="password" id="settingsInstagramPassword" placeholder="비밀번호" autocomplete="new-password">
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary btn-sm" onclick="saveInstagramCreds()">저장</button>
+    </div>
+  </div>
+
+  <!-- [요청] 자주 사용하는 문구 — 직원별 추가/복사 탭 신설: 직원 관리 -->
+  <div class="card">
+    <div class="card-title">직원 관리</div>
+    <p style="font-size:12px;color:#6b7280;margin-bottom:12px">
+      여기에 직원을 추가하면 📝 문구 탭에 직원별 서브탭이 생기고, 각 직원이 자주 쓰는 문구를 등록·복사할 수 있습니다.<br>
+      ⚠ 직원을 삭제하면 그 직원의 문구도 모두 함께 삭제됩니다.
+    </p>
+    <div id="employeesBody" style="max-width:460px;margin-bottom:12px"></div>
+    <div style="display:flex;gap:8px;max-width:460px">
+      <input type="text" id="newEmployeeName" placeholder="직원 이름 (예: A, 홍길동)" style="flex:1" onkeydown="if(event.key==='Enter')addEmployee()">
+      <button class="btn btn-primary btn-sm" onclick="addEmployee()" style="white-space:nowrap">+ 직원 추가</button>
+    </div>
+  </div>
+
+  <!-- 이메일 계정 (Gmail 전용) -->
+  <div class="card">
+    <div class="actions-bar">
+      <div class="card-title">이메일 계정 (Gmail) <span class="count" id="emailAccountCount">0</span></div>
+      <div class="btn-group">
+        <button class="btn btn-outline btn-sm" onclick="addEmailAccount()">+ 이메일 추가</button>
+        <button class="btn btn-primary btn-sm" onclick="saveEmailAccounts()">저장</button>
+      </div>
+    </div>
+    <p style="font-size:12px;color:#6b7280;margin-bottom:12px">Gmail 앱 비밀번호 필요 (2단계 인증 → 앱 비밀번호 생성). 인플루언서 URL 칸에 이메일 주소가 있으면 Gmail로 발송됩니다. ※ Gmail 웹의 서명은 SMTP 발송에 적용되지 않으므로 아래 "서명" 칸에 직접 입력하세요.</p>
+    <div id="emailAccountsBody"></div>
+  </div>
+
+  <!-- 인포크 계정 -->
+  <div class="card">
+    <div class="actions-bar">
+      <div class="card-title">인포크 계정 <span class="count" id="accountCount">0</span></div>
+      <div class="btn-group">
+        <button class="btn btn-outline btn-sm" onclick="addAccount()">+ 계정 추가</button>
+        <button class="btn btn-primary btn-sm" onclick="saveAccounts()">저장</button>
+        <button class="btn btn-danger btn-sm" onclick="resetCounts()">발송횟수 초기화</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:50px">No</th>
+            <th>아이디</th>
+            <th>비밀번호</th>
+            <th style="width:130px">이번 주 발송</th>
+            <th style="width:60px"></th>
+          </tr>
+        </thead>
+        <tbody id="accountsBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>

@@ -54,6 +54,8 @@ async function addResultSupabase(runId, result) {
     run_id: runId,
     account_username: result.account,
     reply_count: result.replyCount || 0,
+    // [요청] 답장확인 '거절' 표시 — 안읽음 거절 채팅방 수
+    reject_count: result.rejectCount || 0,
     error: result.error || null,
     checked_at: new Date().toISOString(),
   });
@@ -79,7 +81,7 @@ async function getLatestSupabase() {
   const run = runs[0];
   const { data: rows, error: pErr } = await supabase
     .from('replies')
-    .select('account_username, reply_count, error, checked_at')
+    .select('account_username, reply_count, reject_count, error, checked_at')
     .eq('run_id', run.id)
     .order('checked_at', { ascending: true });
   if (pErr) throw pErr;
@@ -89,6 +91,8 @@ async function getLatestSupabase() {
     results: (rows || []).map(r => ({
       account: r.account_username,
       replyCount: r.reply_count || 0,
+      // [요청] 답장확인 '거절' 표시
+      rejectCount: r.reject_count || 0,
       error: r.error || null,
     })),
   };

@@ -1,0 +1,18 @@
+<!-- ═══ 제품 관리 ═══ -->
+<div class="panel active" id="panel-products">
+  <div class="card">
+    <div class="actions-bar">
+      <div class="card-title">제품 목록 <span class="count" id="productCount">0</span></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <!-- [요청] 제품 검색 -->
+        <input type="search" id="productSearch" placeholder="검색 (관리명·브랜드·제품명·카테고리·캠페인)" oninput="onProductSearchChange()" style="width:320px;padding:6px 12px;font-size:13px">
+        <!-- [요청] 제조사 관리 — 협업종료 제품 표시 토글 -->
+        <label style="font-size:12px;color:#6b7280;display:flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="showEndedProducts" onchange="onShowEndedProductsChange()"> 협업종료 포함</label>
+        <!-- [요청] 빠른 제품 추가 -->
+        <button class="btn btn-outline btn-sm" onclick="openQuickProductModal()">⚡ 빠른 추가</button>
+        <button class="btn btn-outline btn-sm" onclick="addProduct()">+ 제품 추가</button>
+      </div>
+    </div>
+    <div id="productsList"></div>
+  </div>
+</div>

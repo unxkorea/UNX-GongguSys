@@ -18,27 +18,31 @@ async function checkRepliesForAccount(context, page, account) {
   if (!loggedIn) {
     console.log(`${tag} [재시도] 로그인 실패 → 캐시 비우기 후 재시도`);
     try {
+      // [요청] 로그인 실패 잦음 수정 — networkidle 미도달로 30초씩 낭비되지 않게 'load'로 변경
       await page.context().clearCookies();
-      await page.goto(selectors.login.pageUrl, { waitUntil: 'networkidle', timeout: config.NAVIGATION_TIMEOUT });
-      await page.reload({ waitUntil: 'networkidle' });
+      await page.goto(selectors.login.pageUrl, { waitUntil: 'load', timeout: config.NAVIGATION_TIMEOUT });
+      await page.reload({ waitUntil: 'load', timeout: config.NAVIGATION_TIMEOUT });
     } catch {}
     loggedIn = await login(page, account);
   }
   if (!loggedIn) {
-    return { account: account.username, replyCount: 0, error: '로그인 실패 (재시도 포함)' };
+    return { account: account.username, replyCount: 0, rejectCount: 0, error: '로그인 실패 (재시도 포함)' };
   }
 
   const newTab = await context.newPage();
   newTab.setDefaultTimeout(config.NAVIGATION_TIMEOUT);
 
   let replyCount = 0;
+  let rejectCount = 0;
   let error = null;
 
   try {
+    // [요청] 채팅 페이지는 sendbird 폴링으로 networkidle 미도달 가능 → 타임아웃 나도 페이지는
+    //        이미 로드된 상태이므로 실패 처리하지 않고 계속 진행 (뱃지 카운트는 아래 대기 후 수행)
     await newTab.goto(selectors.chat.pageUrl, {
       waitUntil: 'networkidle',
       timeout: config.NAVIGATION_TIMEOUT,
-    });
+    }).catch(() => {});
 
     try {
       const modalBtn = newTab.getByRole('button', { name: '오늘 그만 보기' });
@@ -51,7 +55,19 @@ async function checkRepliesForAccount(context, page, account) {
     const badges = await newTab.$$(selectors.chat.badge);
     replyCount = badges.length;
 
-    console.log(`${tag} [인포크 확인] 답장 ${replyCount}건`);
+    // [요청] 답장확인 '거절' 표시 — 안읽음 뱃지가 있는 채팅방 중
+    //        마지막 메시지가 "(제안 거절)"로 시작하면 거절로 집계 (거절 ⊆ 답장)
+    const previews = await newTab.$$(selectors.chat.channelPreview);
+    for (const preview of previews) {
+      const badge = await preview.$(selectors.chat.badge);
+      if (!badge) continue;
+      const msgEl = await preview.$(selectors.chat.lastMessage);
+      if (!msgEl) continue;
+      const text = ((await msgEl.textContent()) || '').trim();
+      if (text.startsWith(selectors.chat.rejectPrefix)) rejectCount++;
+    }
+
+    console.log(`${tag} [인포크 확인] 답장 ${replyCount}건${rejectCount > 0 ? ` (거절 ${rejectCount}건)` : ''}`);
   } catch (e) {
     error = e.message;
     console.error(`${tag} [인포크 확인 실패] ${e.message}`);
@@ -61,7 +77,7 @@ async function checkRepliesForAccount(context, page, account) {
 
   await logout(page, account.username);
 
-  return { account: account.username, replyCount, error };
+  return { account: account.username, replyCount, rejectCount, error };
 }
 
 async function main() {
@@ -123,19 +139,22 @@ async function main() {
   console.log('\n========================================');
   console.log('  인포크 확인 결과');
   console.log('========================================');
+  // [요청] 답장확인 '거절' 표시 — 요약에 거절 건수 병기
   let totalReplies = 0;
+  let totalRejects = 0;
   for (const r of results) {
     if (r.error) {
       console.log(`  ${r.account}: 오류 - ${r.error}`);
     } else if (r.replyCount > 0) {
-      console.log(`  ${r.account}: ${r.replyCount}명에게서 답장`);
+      console.log(`  ${r.account}: ${r.replyCount}명에게서 답장${r.rejectCount > 0 ? ` (${r.rejectCount}명 거절)` : ''}`);
       totalReplies += r.replyCount;
+      totalRejects += r.rejectCount || 0;
     } else {
       console.log(`  ${r.account}: 답장 없음`);
     }
   }
   console.log('----------------------------------------');
-  console.log(`  총 답장: ${totalReplies}건`);
+  console.log(`  총 답장: ${totalReplies}건${totalRejects > 0 ? ` (거절 ${totalRejects}건)` : ''}`);
   console.log('========================================');
 }
 

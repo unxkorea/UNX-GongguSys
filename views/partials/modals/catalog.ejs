@@ -1,0 +1,62 @@
+<!-- [요청] 추천 카탈로그 — 신규 / 복제 / 수정 모달 (2패널 좌-우) -->
+<div id="catalogModal" class="modal-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:white;border-radius:12px;max-width:880px;width:94%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,0.2);position:relative;overflow:hidden">
+    <div style="padding:24px;overflow-y:auto;display:flex;flex-direction:column;gap:10px;flex:1;min-height:0">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h3 id="catalogModalTitle" style="margin:0;font-size:18px">신규 카탈로그</h3>
+        <button class="btn btn-sm" style="background:transparent;color:#6b7280;padding:4px 8px" onclick="closeCatalogModal()">✕</button>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:12px">
+        <div class="form-group" style="margin-bottom:0">
+          <label>카탈로그 제목 <span style="font-size:11px;color:#9ca3af;font-weight:400">(비우면 "{닉네임}님 공동구매 제안" 자동 사용)</span></label>
+          <input id="catalogTitle" type="text" placeholder="예: 인플명 - 1차 공구 제안">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>리드에서 가져오기 <span style="font-size:11px;color:#9ca3af;font-weight:400">(선택)</span></label>
+          <select id="catalogLeadSelect" onchange="onCatalogLeadChange()"></select>
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-bottom:0">
+        <label>인플루언서 닉네임 <span style="color:#ef4444">*</span></label>
+        <input id="catalogNickname" type="text" placeholder="예: @nickname 또는 인플루언서명" oninput="updateDupWarning()">
+      </div>
+      <div id="catalogDupWarning" class="catalog-dup-warning" style="display:none"></div>
+
+      <div style="margin-top:6px">
+        <input type="search" id="catalogSearch" placeholder="🔍 좌측 전체 제품 검색 (관리명/브랜드/카테고리)" oninput="renderCatalogProductPanels()" style="width:100%">
+      </div>
+
+      <div class="catalog-panels">
+        <div class="catalog-panel">
+          <div class="catalog-panel-title">전체 제품 — 클릭으로 추가</div>
+          <div class="catalog-product-list" id="catalogAllList"></div>
+        </div>
+        <div class="catalog-panel">
+          <div class="catalog-panel-title">선택된 제품 — 드래그(⠿)로 순서 조정</div>
+          <div class="catalog-product-list" id="catalogSelectedList"></div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
+        <button class="btn btn-outline btn-sm" onclick="closeCatalogModal()">취소</button>
+        <button id="catalogSubmitBtn" class="btn btn-primary btn-sm" onclick="submitCatalog()">생성</button>
+      </div>
+    </div>
+
+    <!-- [요청] 결과 박스 — 모달 내부 오버레이로 z-index 우선순위 시각화 -->
+    <div id="catalogResultBox" class="catalog-result-overlay" style="display:none">
+      <div class="catalog-result-card">
+        <div class="catalog-result-icon">✓</div>
+        <div id="catalogResultTitle" class="catalog-result-title">카탈로그 생성됨</div>
+        <div class="catalog-result-hint">아래 URL을 인플루언서에게 전달하세요</div>
+        <div id="catalogResultUrl" class="catalog-result-url"></div>
+        <div class="catalog-result-actions">
+          <button class="btn btn-outline" onclick="copyResultUrl()">📋 URL 복사</button>
+          <button class="btn btn-primary" onclick="closeCatalogModal()">닫기</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

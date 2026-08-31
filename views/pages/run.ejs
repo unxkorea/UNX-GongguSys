@@ -1,0 +1,80 @@
+<!-- ═══ 실행 ═══ -->
+<div class="panel active" id="panel-run">
+  <div class="card">
+    <div class="card-title">발송 현황</div>
+    <div class="run-stats" id="runStats"></div>
+    <!-- [요청] 다음 사용 계정 표시 -->
+    <div id="nextAccountRow"></div>
+  </div>
+
+  <div class="card">
+    <div class="actions-bar">
+      <div class="card-title">매크로 실행</div>
+      <div class="btn-group">
+        <button class="btn btn-outline" id="btnDryRun" onclick="startMacro(true)">테스트 실행 (DRY-RUN)</button>
+        <button class="btn btn-success" id="btnStart" onclick="startMacro(false)">발송 시작</button>
+        <button class="btn btn-danger" id="btnStop" onclick="stopMacro()" style="display:none">중지</button>
+      </div>
+    </div>
+    <div class="form-group" style="max-width:360px">
+      <label>메일 발송 계정 (이메일 타겟에 사용)</label>
+      <select id="runEmailAccount"></select>
+    </div>
+    <!-- [요청] 메일만 발송 옵션 -->
+    <div class="form-group" style="max-width:360px">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" id="runMailOnly">
+        메일만 발송 (인포크 스킵)
+      </label>
+    </div>
+    <div class="log-area" id="logArea">대기 중...\n</div>
+  </div>
+
+  <div class="card" id="failedCard" style="display:none">
+    <div class="actions-bar">
+      <div class="card-title">실패 목록 <span class="count" id="failedCount">0</span></div>
+      <div class="btn-group">
+        <button class="btn btn-primary btn-sm" onclick="retryFailed()">재발송 등록</button>
+        <button class="btn btn-danger btn-sm" onclick="clearFailed()">실패 목록 지우기</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>닉네임</th>
+            <th>인포크 URL</th>
+            <th>제품명</th>
+            <th>실패 사유</th>
+          </tr>
+        </thead>
+        <tbody id="failedBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- [요청] 발송 중 크래시 대비 — sending 상태 확인 카드 -->
+  <div class="card" id="sendingCard" style="display:none;border:2px solid #f59e0b;background:#fffbeb">
+    <div class="actions-bar">
+      <div class="card-title" style="color:#b45309">⚠️ 확인 필요 <span class="count" id="sendingCount">0</span></div>
+    </div>
+    <p style="font-size:13px;color:#92400e;margin-bottom:12px">
+      발송 중 중단된 건입니다. 실제로 메일/제안서가 나갔는지 받은편지함·발송 기록을 확인한 뒤 처리해주세요.<br>
+      <b>[실제로 보냄]</b> → 감사 로그에 추가하고 대기열에서 제거 / <b>[pending 복구]</b> → 다음 실행에서 재시도
+    </p>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>닉네임</th>
+            <th>프로필/이메일</th>
+            <th>제품명</th>
+            <th>중단 시각</th>
+            <th style="width:220px">처리</th>
+          </tr>
+        </thead>
+        <tbody id="sendingBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>

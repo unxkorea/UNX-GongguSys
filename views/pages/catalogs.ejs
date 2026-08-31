@@ -1,0 +1,37 @@
+<!-- ═══ [요청] 추천 카탈로그 페이지 — 인플루언서별 큐레이션 공유 링크 ═══ -->
+<div class="panel active" id="panel-catalogs">
+  <div class="card">
+    <div class="actions-bar">
+      <div class="card-title">추천 카탈로그 <span class="count" id="catalogsCount">0</span></div>
+      <div class="btn-group">
+        <button class="btn btn-primary btn-sm" onclick="openCatalogModal()">+ 신규 카탈로그</button>
+      </div>
+    </div>
+    <p style="font-size:13px;color:#6b7280;margin-bottom:12px">인플루언서별로 제품을 큐레이션해서 공개 URL을 발급합니다. 한 인플루언서에게 여러 개(차수별/시즌별) 만들 수 있습니다.</p>
+    <div class="leads-filter-bar">
+      <input type="search" id="catalogsSearch" placeholder="🔍 닉네임/제목 검색" style="width:auto;min-width:200px" oninput="renderCatalogs()">
+      <label style="margin-bottom:0">정렬</label>
+      <select id="catalogsSort" onchange="renderCatalogs()" style="width:auto;min-width:160px">
+        <option value="recent">최근 생성순</option>
+        <option value="nickname">닉네임순 (그룹화)</option>
+      </select>
+      <span style="font-size:12px;color:#9ca3af" id="catalogsFilterCount"></span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="catalogs-table" id="catalogsTable">
+        <thead>
+          <tr>
+            <th>닉네임</th>
+            <th>제목</th>
+            <th style="width:80px;text-align:center">제품수</th>
+            <th style="width:80px;text-align:center">조회수</th>
+            <th>URL</th>
+            <th style="width:90px">생성일</th>
+            <th style="width:200px">액션</th>
+          </tr>
+        </thead>
+        <tbody id="catalogsBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>

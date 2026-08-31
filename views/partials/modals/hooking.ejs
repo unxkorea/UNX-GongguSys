@@ -1,0 +1,19 @@
+<!-- [요청] 모달 바깥클릭 닫힘 제거 — ESC/X로만 -->
+<div id="hookingModal" class="modal-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:white;border-radius:12px;padding:24px;max-width:600px;width:90%;max-height:80vh;display:flex;flex-direction:column;gap:14px;box-shadow:0 10px 40px rgba(0,0,0,0.2)">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h3 style="margin:0;font-size:18px">후킹문구 일괄 입력</h3>
+      <button class="btn btn-sm" style="background:transparent;color:#6b7280;padding:4px 8px" onclick="closeHookingModal()">✕</button>
+    </div>
+    <div style="font-size:13px;color:#6b7280">한 줄에 한 개씩 붙여넣으세요. 빈 줄은 자동으로 제외됩니다.</div>
+    <textarea id="hookingModalTextarea" rows="14" placeholder="후킹문구1&#10;후킹문구2&#10;후킹문구3" style="font-family:inherit"></textarea>
+    <div style="display:flex;gap:18px;font-size:13px;color:#374151">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="hookingMode" value="append" checked style="width:auto"> 기존 항목 뒤에 추가</label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="hookingMode" value="replace" style="width:auto"> 교체(전체 덮어쓰기)</label>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-outline btn-sm" onclick="closeHookingModal()">취소</button>
+      <button class="btn btn-primary btn-sm" onclick="applyHookingModal()">적용</button>
+    </div>
+  </div>
+</div>

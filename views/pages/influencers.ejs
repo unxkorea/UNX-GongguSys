@@ -1,0 +1,33 @@
+<!-- ═══ 인플루언서 ═══ -->
+<div class="panel active" id="panel-influencers">
+  <div class="card">
+    <div class="actions-bar">
+      <div class="card-title">인플루언서 목록 <span class="count" id="influencerCount">0</span></div>
+      <div class="btn-group">
+        <button class="btn btn-outline btn-sm" onclick="addInfluencerRow()">+ 행 추가</button>
+        <button class="btn btn-primary btn-sm" onclick="saveInfluencers()">저장</button>
+        <button class="btn btn-danger btn-sm" onclick="clearInfluencers()">전체 삭제</button>
+      </div>
+    </div>
+
+    <div class="paste-area" id="pasteArea" contenteditable="false" tabindex="0">
+      <p>구글 시트에서 복사 후 여기를 클릭하고 Ctrl+V</p>
+      <small>닉네임 &nbsp; | &nbsp; 인포크 URL &nbsp; | &nbsp; 제품명 &nbsp; (탭으로 구분)</small>
+    </div>
+
+    <div style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:50px">No</th>
+            <th>닉네임</th>
+            <th>인포크 URL</th>
+            <th>제품명</th>
+            <th style="width:60px"></th>
+          </tr>
+        </thead>
+        <tbody id="influencersBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>

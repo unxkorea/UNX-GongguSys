@@ -3,18 +3,27 @@ const fs = require('fs');
 const config = require('../../config');
 const { supabase } = require('../db');
 
+// [요청] Gmail 앱 비밀번호 공백 제거 — Google이 'abcd efgh ijkl mnop' 형식으로 보여주기 때문에
+// 그대로 붙여넣으면 공백이 섞인 채 저장되고 SMTP가 535 BadCredentials로 거부한다.
+// 저장(replaceAll)·조회(list) 양쪽에서 정규화해 기존에 저장된 값도 자동 교정된다.
+function normalizeAppPassword(v) {
+  return typeof v === 'string' ? v.replace(/\s+/g, '') : v;
+}
+
 // ─── JSON ───
 async function listJson() {
   if (!fs.existsSync(config.PATHS.emailAccounts)) return [];
   try {
-    return JSON.parse(fs.readFileSync(config.PATHS.emailAccounts, 'utf-8'));
+    const list = JSON.parse(fs.readFileSync(config.PATHS.emailAccounts, 'utf-8'));
+    return (list || []).map(a => ({ ...a, appPassword: normalizeAppPassword(a.appPassword) }));
   } catch {
     return [];
   }
 }
 
 async function replaceAllJson(list) {
-  fs.writeFileSync(config.PATHS.emailAccounts, JSON.stringify(list, null, 2), 'utf-8');
+  const normalized = (list || []).map(a => ({ ...a, appPassword: normalizeAppPassword(a.appPassword) }));
+  fs.writeFileSync(config.PATHS.emailAccounts, JSON.stringify(normalized, null, 2), 'utf-8');
 }
 
 // ─── Supabase ───
@@ -28,7 +37,7 @@ async function listSupabase() {
   return data.map(a => ({
     id: a.id,
     email: a.email,
-    appPassword: a.app_password,
+    appPassword: normalizeAppPassword(a.app_password),
     senderName: a.sender_name,
     signature: a.signature || '',
     signatureImage: a.signature_image_url || '',
@@ -42,7 +51,7 @@ async function replaceAllSupabase(list) {
   for (const a of updates) {
     const { error } = await supabase.from('email_accounts').update({
       email: a.email,
-      app_password: a.appPassword,
+      app_password: normalizeAppPassword(a.appPassword),
       sender_name: a.senderName,
       signature: a.signature || null,
       signature_image_url: a.signatureImage || null,
@@ -52,7 +61,7 @@ async function replaceAllSupabase(list) {
   if (inserts.length) {
     const rows = inserts.map(a => ({
       email: a.email,
-      app_password: a.appPassword,
+      app_password: normalizeAppPassword(a.appPassword),
       sender_name: a.senderName,
       signature: a.signature || null,
       signature_image_url: a.signatureImage || null,

@@ -1,0 +1,46 @@
+<%#
+  [요청] 관리 UI 구조 개편 C단계 — 공통 레이아웃
+  res.render('layout', { title, active, activeSub, page, scripts, modals })
+    title     : <title> 접두어
+    active    : 1depth 탭 키 (products | inpock | leads | catalogs | instagram | phrases | '')
+    activeSub : 2depth 서브탭 키 (없으면 '')
+    page      : views/pages/<page>.ejs
+    scripts   : /js/ 아래 로드할 파일명 배열 (공통 util/state/nav 제외, 순서 = 로드 순서)
+    modals    : views/partials/modals/<name>.ejs 배열
+-%>
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <title><%= title %> · 제품 관리 시스템</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <!-- [요청] 추천 카탈로그 — 드래그 정렬용 -->
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+</head>
+<body>
+  <%- include('partials/header') %>
+  <%- include('partials/tabs', { active: active, activeSub: activeSub }) %>
+
+  <div class="content">
+    <%- include('pages/' + page) %>
+  </div>
+
+<% (modals || []).forEach(function (m) { %>
+  <%- include('partials/modals/' + m) %>
+<% }); %>
+
+  <%#
+    [요청] C단계 — classic script 순차 로드 (type="module" 금지: 인라인 onclick 이 전역 함수를 참조).
+    파일 간 hoisting 이 안 되므로 실행문을 가진 init/*.js 는 항상 마지막.
+  -%>
+  <script src="/js/util.js"></script>
+  <script src="/js/state.js"></script>
+  <script src="/js/nav.js"></script>
+<% (scripts || []).forEach(function (s) { %>
+  <script src="/js/<%= s %>"></script>
+<% }); %>
+  <script src="/js/init/<%= page %>.js"></script>
+</body>
+</html>

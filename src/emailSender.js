@@ -117,7 +117,8 @@ function createTransport(emailAccount) {
     service: 'gmail',
     auth: {
       user: emailAccount.email,
-      pass: emailAccount.appPassword,
+      // [요청] Gmail 앱 비밀번호 공백 제거 — repo에서 이미 정규화하지만 발송 직전 최종 방어
+      pass: (emailAccount.appPassword || '').replace(/\s+/g, ''),
     },
   });
 }

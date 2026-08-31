@@ -14,6 +14,10 @@ const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json({ limit: '50mb' }));
 
+// [요청] 관리 UI 구조 개편 C단계 — SPA(index.html 1개) → 탭별 MPA(EJS 10페이지)
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
+
 // [요청] 외부 배포 — 세션 기반 비밀번호 인증
 //   - settings.adminPassword가 비어있으면 auth 비활성 (로컬 전용 운영 시)
 //   - 값이 있으면 /login 통과 전까지 모든 경로 차단
@@ -86,6 +90,62 @@ app.use(authRequired);
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
+
+// ═══════════════════════════════════════════════════════════════
+// [요청] 관리 UI 구조 개편 C단계 — 탭별 페이지 라우트
+//   각 항목: [경로, layout에 넘길 옵션]
+//     active/activeSub — 탭바 하이라이트 (views/partials/tabs.ejs)
+//     scripts          — /js/ 아래 로드 순서. 공통 util·state·nav 와
+//                        /js/init/<page>.js 는 layout이 자동으로 붙인다.
+//     modals           — views/partials/modals/<name>.ejs
+// ═══════════════════════════════════════════════════════════════
+const UI_PAGES = [
+  ['/products', {
+    title: '제품 목록', active: 'products', activeSub: 'products', page: 'products',
+    scripts: ['manufacturers.js', 'products.js'], modals: ['hooking', 'quickProduct'],
+  }],
+  ['/manufacturers', {
+    title: '제조사 목록', active: 'products', activeSub: 'manufacturers', page: 'manufacturers',
+    scripts: ['products.js', 'manufacturers.js'], modals: ['manufacturerDelete'],
+  }],
+  ['/influencers', {
+    title: '인플루언서', active: 'inpock', activeSub: 'influencers', page: 'influencers',
+    scripts: ['influencers.js'], modals: [],
+  }],
+  ['/run', {
+    title: '인포크/메일 발송', active: 'inpock', activeSub: 'run', page: 'run',
+    scripts: ['accounts.js', 'influencers.js', 'run.js'], modals: ['manualSend'],
+  }],
+  ['/replies', {
+    title: '인포크 답장 확인', active: 'inpock', activeSub: 'replies', page: 'replies',
+    scripts: ['replies.js'], modals: [],
+  }],
+  ['/leads', {
+    title: '리드 관리', active: 'leads', activeSub: '', page: 'leads',
+    scripts: ['leads.js'], modals: ['lead'],
+  }],
+  ['/catalogs', {
+    title: '제품추천생성', active: 'catalogs', activeSub: '', page: 'catalogs',
+    scripts: ['settings.js', 'catalogs.js'], modals: ['catalog'],
+  }],
+  ['/instagram', {
+    title: '인스타분석', active: 'instagram', activeSub: '', page: 'instagram',
+    scripts: ['instagram.js'], modals: [],
+  }],
+  ['/phrases', {
+    title: '메모', active: 'phrases', activeSub: '', page: 'phrases',
+    scripts: ['phrases.js'], modals: [],
+  }],
+  ['/settings', {
+    title: '설정', active: '', activeSub: '', page: 'settings',
+    scripts: ['accounts.js', 'phrases.js', 'settings.js'], modals: [],
+  }],
+];
+UI_PAGES.forEach(([route, opts]) => {
+  app.get(route, (req, res) => res.render('layout', opts));
+});
+// 진입점 — 기존 '/' 는 제품 목록으로
+app.get('/', (req, res) => res.redirect('/products'));
 
 // 이미지 업로드 설정
 const storage = multer.diskStorage({

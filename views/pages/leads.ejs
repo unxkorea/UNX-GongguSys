@@ -1,0 +1,44 @@
+<!-- ═══ 리드 관리 ═══ -->
+<!-- [요청] 리드 관리 탭 신설 (답장 온 인플루언서 추적) -->
+<div class="panel active" id="panel-leads">
+  <div class="card">
+    <div class="actions-bar">
+      <div class="card-title">리드 관리 <span class="count" id="leadsCount">0</span></div>
+      <div class="btn-group">
+        <button class="btn btn-primary btn-sm" onclick="openLeadModal(null)">+ 리드 추가</button>
+      </div>
+    </div>
+    <p style="font-size:13px;color:#6b7280;margin-bottom:12px">답장 온 인플루언서를 기록하고 제안서 발송일+3일에 자동으로 리마인드 안내를 받습니다. 매일 09:00에 리마인드 due 항목이 서버 로그에 출력됩니다.</p>
+    <div id="leadsDueSummary"></div>
+    <div class="leads-filter-bar">
+      <label style="margin-bottom:0">필터</label>
+      <select id="leadsFilter" onchange="renderLeads()">
+        <option value="all">전체</option>
+        <option value="due">리마인드 필요</option>
+        <option value="pending">진행 중 (pending)</option>
+        <option value="done">완료 (거절/공구진행/무응답)</option>
+      </select>
+      <span style="font-size:12px;color:#9ca3af" id="leadsFilterCount"></span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="leads-table" id="leadsTable">
+        <thead>
+          <tr>
+            <th>닉네임</th>
+            <th>관심 제품</th>
+            <th>제안서 발송일</th>
+            <th>관심 연락일</th>
+            <th>리마인드 필요일</th>
+            <th>어울릴만한 제품</th>
+            <th>최종 결과</th>
+            <!-- [요청] 리드 관리 — 카톡전환 컬럼/체크박스 + 표에 메모란 노출 -->
+            <th>카톡전환</th>
+            <th>메모</th>
+            <th style="width:160px">액션</th>
+          </tr>
+        </thead>
+        <tbody id="leadsBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>

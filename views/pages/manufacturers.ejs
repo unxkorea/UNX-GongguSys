@@ -1,0 +1,17 @@
+<!-- ═══ 제조사 관리 (제품 관리 2depth) ═══ -->
+<!-- [요청] 제조사 관리 기능 — 제조사 추가 → 제품 추가 흐름 -->
+<div class="panel active" id="panel-manufacturers">
+  <div class="card">
+    <div class="actions-bar">
+      <div class="card-title">제조사 목록 <span class="count" id="manufacturerCount">0</span></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="search" id="manufacturerSearch" placeholder="제조사 검색 (이름·담당자·연락처)" oninput="renderManufacturers()" style="width:260px;padding:6px 12px;font-size:13px">
+        <label style="font-size:12px;color:#6b7280;display:flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="showEndedManufacturers" onchange="renderManufacturers()"> 협업종료 포함</label>
+        <button class="btn btn-primary btn-sm" onclick="openManufacturerForm()">+ 제조사 추가</button>
+      </div>
+    </div>
+    <div style="font-size:13px;color:#6b7280;margin-bottom:12px">제조사를 먼저 등록하면 제품 추가 시 선택만으로 브랜드명·허들·일정·메모가 채워집니다.</div>
+    <div id="manufacturerFormBox" style="display:none"></div>
+    <div id="manufacturersList"></div>
+  </div>
+</div>

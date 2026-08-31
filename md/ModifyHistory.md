@@ -25,17 +25,58 @@
   - **옵션 4** 하이브리드 — 옵션1로 후보 10개 추리고 옵션3이 순위 매기기.
 - 갈피 잡히면 위 옵션 중 하나(또는 별안)로 정식 요청 예정. 그 전까진 코드 수정 없음.
 
-## 답장확인 '거절' 표시하기
-<div role="link" tabindex="-1" class="css-16qcn4y"><div class="css-1yo7vlv"><div class="css-1a42sk4" width="48"><img src="https://d13k46lqgoj3d6.cloudfront.net/2025/5/29/2025-5-29-1748521327425.webp?w=300" width="48" class="css-14kdq5w"></div><div class="css-1o9ehop"><div class="css-7luk43"><p class="inpock-typography paragraph-2">happy.jiwoo</p><span class="inpock-typography small-text sendbird-channel-preview__content__upper__last-message-at" style="color: rgb(151, 151, 151); word-break: keep-all; min-width: 60px; text-align: end;">10:59</span></div><span class="inpock-typography small-text css-f2ehsn" style="color: rgb(151, 151, 151);">공동구매 <span class="text-gray-300">|</span> 시너지업팩토리 <span class="text-gray-300">|</span> 알파10.5</span><div class="css-7luk43"><p class="inpock-typography paragraph-2 sendbird-channel-preview__content__lower__last-message line-clamp" style="color: rgb(151, 151, 151); -webkit-line-clamp: 1;">(제안 거절) 상대방과 더 이상 대화할 수 없는 채팅방 입니다.</p></div></div></div></div>
-
-거절일 경우 '제안 거절' 메시지에 남겨져있음. 이럴경우 
-N명에게서 답장 (M명 거절)
-이렇게 표기 하도록
-
-
 [ 실행계획 ]
 
 [ 작업완료 ]
+## 답장확인 '거절' 표시하기 (26.08.27)
+답장확인 결과에 거절 건수 병기 — `N명에게서 답장 (M명 거절)`. 집계 기준: **안읽음 뱃지가 있는 채팅방 중** 마지막 메시지가 `(제안 거절)`로 시작하는 채팅방 수 (M ⊆ N, 이미 확인한 과거 거절은 미집계). 거절 0건이면 괄호 생략.
+- **[src/selectors.js](src/selectors.js)** `chat`: `channelPreview`(`div[role="link"]:has(p.sendbird-channel-preview__content__lower__last-message)`) / `lastMessage` / `rejectPrefix`(`(제안 거절)`) 추가. css 해시 클래스는 빌드마다 바뀌어 sendbird 고정 클래스만 사용.
+- **[src/checkReplies.js](src/checkReplies.js)**: 뱃지 카운트 직후 channelPreview 순회 — 내부에 `.sendbird-badge` 있고 lastMessage가 `(제안 거절)` 시작이면 rejectCount++. 결과 객체·계정별 로그·최종 요약에 거절 병기.
+- **[src/repo/repliesRepo.js](src/repo/repliesRepo.js)**: Supabase insert/select/map에 `reject_count`↔`rejectCount` 추가. JSON 모드는 result 통째 저장이라 자동 통과.
+- **[scripts/schema.sql](scripts/schema.sql)**: `replies` 테이블 정의에 `reject_count int not null default 0` + 기존 프로젝트용 멱등 `alter table ... add column if not exists`. **⚠ Supabase SQL Editor에서 ALTER 1회 실행 필요 — 실행 전에는 답장확인 결과 insert가 실패함.**
+- **[public/js/replies.js](public/js/replies.js)**: 결과 테이블 행에 빨간색 `(M명 거절)`, 상단 요약에 `총 답장 X건 (거절 Y건)`. 헤더 답장 뱃지(nav.js)는 기존 답장 총건수 유지.
+- 검증: 4개 파일 `node --check` 통과. 실표기 확인은 거절 채팅방 있는 계정으로 `npm run check-replies` 1회.
+## 인포크 확인 로그인 실패 잦음 수정 — networkidle 오판 제거 (26.08.27)
+답장확인 매크로에서 "로그인 성공! → 로그인 실패(page.reload Timeout)" 패턴이 자주 발생하던 문제. 원인은 계정/로그인이 아니라 **admin 페이지가 sendbird 폴링 등 백그라운드 요청 때문에 `networkidle`(0.5초간 요청 없음)에 도달하지 못해**, 성공한 로그인을 30초 타임아웃으로 실패 오판하던 것. 재시도 경로도 이미 로그인된 상태에서 로그인 폼을 다시 기다려 항상 실패했음.
+- **[src/auth.js](src/auth.js)** 전면 정비:
+  - `attemptLogin`: 로그인 버튼 클릭 후 `waitForNavigation(networkidle)` → `waitForURL('**/admin/**', load)` — admin 진입 자체를 성공 기준으로.
+  - 캐시 비우기+새로고침 규약은 `clearCacheAndReload()` 헬퍼로 유지하되 완료 대기만 `networkidle` → `'load'`.
+  - **"이미 로그인됨" 감지 추가**(`isLoggedIn` = URL에 `/admin` 포함): 1차 실패 catch와 재시도 실패 catch 양쪽에서 admin에 들어와 있으면 성공 처리 — 성공한 세션을 버리고 무한 재시도하던 구조 해소.
+  - 재시도 성공 경로에도 캐시 비우기+새로고침 추가(기존엔 누락). `logout()`의 goto/reload 3곳도 `networkidle` → `'load'`.
+- **[src/checkReplies.js](src/checkReplies.js)**: ① 바깥 재시도 경로의 goto/reload `'load'`로 변경(실패 시 30초×2 낭비 제거) ② 채팅 페이지 goto는 `networkidle` 유지하되 `.catch(() => {})` — 타임아웃 나도 페이지는 로드된 상태라 뱃지 카운트 계속 진행.
+- 검증: 두 파일 `node --check` 통과. 실검증은 다음 `npm run check-replies` 실행(또는 cron 08:30/10:30/12:30/14:30)에서 확인.
+## Gmail 앱 비밀번호 공백 자동 제거 (26.08.11)
+메일 발송 시 `535-5.7.8 Username and Password not accepted` 조사 중 발견한 저장 형식 문제. Google이 앱 비밀번호를 `abcd efgh ijkl mnop` 형태로 보여줘서 그대로 붙여넣으면 공백 포함 19자로 저장되고 SMTP 인증이 거부된다(실제 DB 값이 그 상태였음).
+- **[src/repo/emailAccountsRepo.js](src/repo/emailAccountsRepo.js)**: `normalizeAppPassword()` 추가 후 **조회·저장 양쪽**에 적용 — `listJson`/`listSupabase`(읽을 때 정규화 → 이미 공백 포함으로 저장된 기존 값도 재저장 없이 자동 교정) + `replaceAllJson`/`replaceAllSupabase` update·insert. 모든 소비자(발송·연결 테스트·UI)가 repo를 경유하므로 여기가 단일 choke point.
+- **[src/emailSender.js](src/emailSender.js)** `createTransport`: `pass`에 공백 제거 1줄 — 발송 직전 최종 방어.
+- **[public/js/accounts.js](public/js/accounts.js)**: 앱 비밀번호 input `onchange`에서 즉시 공백 제거 → 저장 전 화면 값과 실제 저장 값 일치.
+- 검증: 3개 파일 `node --check` 통과. Supabase 모드·JSON 롤백 모드 모두 `list()` 결과 19자/공백있음 → **16자/공백없음**.
+- **주의**: 이번 발송 실패의 근본 원인은 공백이 아니라 **앱 비밀번호 자체가 폐기됨**(공백 제거 후에도 `verify()` 535 실패 확인). 설정 탭에서 새 앱 비밀번호 발급·입력 필요.
+
+## 관리 UI 구조 개편 C단계 — express + EJS MPA 전환 (26.08.10)
+SPA 탭 전환을 **탭별 실제 URL 10개(MPA)** 로 전환하고, 헤더/GNB를 EJS partial 1벌로 통합. A단계(CSS/JS 분리)의 후속. `/api/*`·repo·스키마·인증 전부 무변경.
+- **의존성 `ejs` 1개 추가**(6.0.1, 런타임 의존성 0). [server.js](server.js)에 `view engine`/`views` 2줄.
+- **라우트** ([server.js](server.js) `UI_PAGES`): `/products` `/manufacturers` `/influencers` `/run` `/replies` `/leads` `/catalogs` `/instagram` `/phrases` `/settings`, `/` → `/products` 리다이렉트. 배열 1개가 `{title, active, activeSub, page, scripts, modals}` 를 모두 들고 있어 페이지 추가 = 배열에 한 줄. `app.use(authRequired)` 뒤에 배치해 인증은 기존 그대로.
+- **뷰 신설**: [views/layout.ejs](views/layout.ejs) + [views/partials/header.ejs](views/partials/header.ejs) + [views/partials/tabs.ejs](views/partials/tabs.ejs) + `views/pages/*.ejs` 10개 + `views/partials/modals/*.ejs` 6개. `index.html` 의 패널/모달 마크업을 그대로 이식(패널은 페이지당 1개라 `panel active` 고정).
+- **GNB partial화**(핵심 목적): [views/partials/tabs.ejs](views/partials/tabs.ejs) 의 `TABS`/`SUBTABS` 배열이 단일 소스. **탭 추가·개명·이동은 이 파일 한 곳만** 고치면 10개 페이지에 반영. `.tab`/`.subtab` 이 `div`→`a` 로 바뀌어 [app.css](public/css/app.css)에 `text-decoration:none; white-space:nowrap` 추가.
+- **[nav.js](public/js/nav.js) 전면 재작성**: `onPanelEnter`/`SUBGROUPS`/`activateSub`/`activateInpockSub`/`hideAllSubtabBars`/`goToRepliesTab`/`goToSettings`/탭 클릭 리스너 전부 제거(→ `<a href>` + 서버가 active 렌더). 남은 책임은 **전 페이지 공통** 3가지: 헤더 인포크 배지, 리드 마감 배지, 모달 ESC 레지스트리.
+  - `MODAL_CLOSERS` 를 빈 객체 + `registerModalClosers(map)` 로 바꿈 — A단계엔 6개를 한 곳에 하드코딩했으나 페이지마다 싣는 모달이 달라 각 init이 자기 것만 등록.
+  - 리드 마감 배지는 리드 페이지 밖에서도 떠야 해서 nav 소유로 이동(`renderLeadsBadge`/`refreshLeadsBadge`). `todayIso`/`addDaysIso`/`isDue` 는 leads.js → [util.js](public/js/util.js) 로 이동.
+- **[public/js/init/](public/js/init/) 10개로 분할**: A단계의 통짜 `init.js`(API 12개 일괄 호출) 삭제. 페이지 로드당 API 호출 **3~7건**으로 감소(측정: products 4 / leads 4 / catalogs 6 / instagram 3 / phrases 4 / settings 7 / run 11(폴링 포함)).
+- **공유 js의 페이지 안전성**(MPA 필수 조치): 한 파일이 여러 페이지에서 로드되므로 컨테이너 부재 시 early-return 가드 추가 — `renderAccounts`/`renderEmailAccounts`/`renderProducts`/`renderInfluencers`/`renderLeads`/`renderCatalogs`/`renderPhraseTabs`/`renderPhrases`, `loadSettings`의 `settingsMailBcc`, influencers.js의 `pasteArea` 리스너. 파일이 아예 없는 페이지 대비로 `typeof` 가드 2곳(`renderRepliesAccountOptions` in accounts.js, `renderCatalogs` in settings.js). `renderLeads`/`renderCatalogs` 는 가드를 함수 최상단으로 올림(중간에 `leadsCount` 등을 먼저 건드려 throw 나던 위치).
+- **[vercel.json](vercel.json)**: `includeFiles` 에 `"views/**"` 추가. 서버리스는 `res.render` 런타임 경로를 추적 못 해 누락 시 로컬만 동작하고 배포에서 템플릿 미발견.
+- **삭제**: `public/index.html`(727줄), `public/js/init.js` — 내용 전량이 `views/` + `public/js/init/` 로 이관됨.
+- 검증: ① 전 js + server.js `node --check`, 최상위 `let/const` 충돌 0 ② `ejs.renderFile` 로 10개 페이지 조립 성공(탭 6·서브탭 링크·모달·script 개수 확인) ③ Playwright 실브라우저 — 10개 URL 순회 전부 패널 활성/CSS 적용/탭·서브탭 하이라이트 정확, 모달 4종 열기→ESC 닫힘 + 1종 등록 확인, 탭 링크 클릭 이동 4종, **콘솔·네트워크 에러 0건** ④ 데이터 적재 — 제품 95 / 제조사 66 / 리드 37 / 카탈로그 6 / 계정 23 / 메일계정 옵션 2 / 시작계정 옵션 24 / 직원 1, 공통 배지 3개 페이지에서 정상 노출.
+## 관리 UI 구조 개편 A단계 — index.html CSS/JS 외부 파일 분리 (26.08.10)
+[public/index.html](public/index.html) 3,715줄 / 203KB 단일 파일을 CSS 1개 + JS 15개로 분리. **SPA 동작·URL·마크업 전부 그대로, 기능 변경 0.** 후속 C단계(EJS MPA)의 선행 작업. 서버/repo/API/스키마 무영향.
+- **index.html 3,715줄 → 728줄**: `<style>`(8-274) → `<link href="/css/app.css">`, `<script>`(758-3498, 2,739줄) → `<script src>` 15개. 마크업·모달은 손대지 않음(분리 전후 유효행 668개 완전 일치 검증).
+- **[public/css/app.css](public/css/app.css)** (267줄) ← 인라인 `<style>` 본문 전량.
+- **[public/js/](public/js/) 15개** — 기존 `// ═══` 섹션 경계를 그대로 사용: [util.js](public/js/util.js)(esc/escapeHtml/fmtKst/showToast/copyText/resizeImage — 원본에서 4곳에 흩어져 있던 공용 헬퍼 통합) / [state.js](public/js/state.js) / [nav.js](public/js/nav.js)(탭 전환+답장 배지) / [accounts.js](public/js/accounts.js) / [products.js](public/js/products.js)(521줄, 최대) / [manufacturers.js](public/js/manufacturers.js) / [influencers.js](public/js/influencers.js) / [run.js](public/js/run.js) / [replies.js](public/js/replies.js) / [instagram.js](public/js/instagram.js) / [settings.js](public/js/settings.js) / [phrases.js](public/js/phrases.js) / [leads.js](public/js/leads.js) / [catalogs.js](public/js/catalogs.js) / [init.js](public/js/init.js).
+- **`type="module"` 금지**(결정): 인라인 `onclick=` 핸들러가 120개라 모듈 스코프로 가면 전역 함수 참조가 전부 끊김. classic script 순차 로드로 감. 최상위 `function`/`let`/`const`가 파일 간 공유되는 전역 렉시컬 스코프에 올라가는 성질을 그대로 이용 — 단 `window.products` 형태로는 안 잡히고 식별자로만 접근됨(원본 단일 script와 동일).
+- **[init.js](public/js/init.js) 최후 로드**(핵심): 파일 간에는 hoisting이 안 되므로 *실행문*을 전부 모음 — `updateReplyBadge()`+30초 interval, 초기 로드 12개(`loadSettings`/`loadAccounts`/`loadEmailAccounts`/`loadManufacturers().then(loadProducts)`/`loadInfluencers`/`loadRunStats`/`loadFailed`/`loadSending`/`syncMacroRunning`/`pollReplies`/`syncInstaRunning`/`loadLeads`), `dirtyFromEvent`+`productsList` 리스너, `loadCatalogs()`+60초 interval, `MODAL_CLOSERS`+ESC keydown. 특히 `MODAL_CLOSERS`는 객체 리터럴 **평가 시점**에 `close*` 함수 6개를 값으로 참조해 먼저 로드되면 ReferenceError.
+- 자족적이라 이동하지 않은 최상위 실행문: `.tab`/`.subtab` 클릭 리스너(nav.js), `const pasteArea`(influencers.js) — 참조 DOM이 스크립트 위치보다 앞에 있음. `<script>` 태그 위치도 원본과 동일(`.content` 뒤 / 모달 앞)로 유지해 타이밍 변화 0.
+- **[server.js](server.js) 무수정** — [server.js:87](server.js#L87) `express.static(public)`이 `/css`·`/js` 자동 서빙.
+- 검증: ① 15개 파일 `node --check` 통과 ② 최상위 `let`/`const` 이름 충돌 0건 ③ 분리 전후 CSS 242행·JS 2,558행 유효행 **완전 일치**(누락/중복 0) ④ Playwright 실브라우저 — 로그인 후 11개 탭 전 순회, 전역 함수 24개 존재, 데이터 로드(제품 94/제조사 65/리드 37/카탈로그 6/계정 23), CSS 적용, 모달 열기→ESC 닫기, **콘솔·네트워크 에러 0건**.
 ## 제품 관리 목록 — 후킹문구 기본 1개 노출 + 나머지 아코디언 (26.08.07)
 제품관리 > 목록에서 후킹문구가 전부 접혀 있어 눈에 잘 안 들어오던 문제. 1번 문구는 항상 노출(데이터 없으면 빈 칸), 2번째부터만 접기. UI 전용 변경([public/index.html](public/index.html)) — 백엔드/repo/스키마 무영향.
 - **리스트 "첫 줄 + 나머지" 분리** ([public/index.html:1295-1319](public/index.html#L1295-L1319)): 리스트 전체를 `display:none`으로 감싸던 방식 → 인라인 IIFE에서 공통 `row(val, hi, removable)` 헬퍼로 렌더. 1번 행은 항상 표시, `list.slice(1)`만 `display:${hookingOpenIdx.has(i)?'block':'none'}` 블록에 넣고 인덱스는 `k+1`로 보정(`removeHookingPhrase`/`setHookingPhrase` 대상 유지).

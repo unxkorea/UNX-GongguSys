@@ -178,9 +178,13 @@ create table if not exists replies (
   run_id            uuid        not null references reply_runs(id) on delete cascade,
   account_username  text        not null,
   reply_count       int         not null default 0,
+  reject_count      int         not null default 0,
   error             text,
   checked_at        timestamptz not null default now()
 );
+
+-- [요청] 답장확인 '거절' 표시 — 기존 프로젝트용 멱등 마이그레이션 (신규 생성 시엔 위 정의에 이미 포함)
+alter table replies add column if not exists reject_count int not null default 0;
 
 create index if not exists idx_replies_run on replies(run_id, checked_at);
 

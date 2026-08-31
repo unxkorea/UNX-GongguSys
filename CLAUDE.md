@@ -24,6 +24,20 @@ UI에서 "발송 시작"을 누르면 [server.js](server.js)가 `node src/index.
 
 테스트/린트 스크립트는 없다.
 
+### 관리 UI 구조 — EJS MPA (탭 = 페이지)
+
+관리 UI는 탭마다 실제 URL을 갖는 **MPA**다. 예전엔 `public/index.html` 단일 SPA였으나 EJS 10페이지로 분리했다.
+
+- **라우트**: [server.js](server.js)의 `UI_PAGES` 배열이 단일 소스. `/products` `/manufacturers` `/influencers` `/run` `/replies` `/leads` `/catalogs` `/instagram` `/phrases` `/settings` (+ `/` → `/products` 리다이렉트). 각 항목이 `res.render('layout', opts)`에 넘길 `{title, active, activeSub, page, scripts, modals}`를 들고 있다.
+- **뷰**: [views/layout.ejs](views/layout.ejs)(공통 뼈대) + [views/partials/header.ejs](views/partials/header.ejs) + [views/partials/tabs.ejs](views/partials/tabs.ejs)(GNB) + `views/pages/*.ejs`(패널 본문) + `views/partials/modals/*.ejs`.
+  - **탭을 추가·개명·이동할 곳은 [views/partials/tabs.ejs](views/partials/tabs.ejs)의 `TABS`/`SUBTABS` 배열 한 곳뿐.** 10개 페이지에 동시 반영된다.
+- **클라이언트 JS**: [public/js/](public/js/) — 도메인별 파일 + `init/<page>.js`(페이지별 초기 로드). CSS는 [public/css/app.css](public/css/app.css) 1개.
+  - **`type="module"` 금지**. 인라인 `onclick=` 핸들러가 120여 개라 모듈 스코프로 가면 전역 함수 참조가 전부 끊긴다. classic script 순차 로드를 유지할 것.
+  - 파일 간 hoisting이 안 되므로 **실행문은 `init/<page>.js`에만** 둔다. layout이 `util → state → nav → (페이지 scripts) → init/<page>` 순으로 붙인다.
+  - 한 js 파일이 여러 페이지에서 로드되므로 **`renderX()`는 컨테이너가 없으면 early-return**해야 한다(기존 함수들이 이미 그렇게 돼 있음).
+  - 페이지 공통 동작(헤더 인포크 배지, 리드 마감 배지, 모달 ESC 레지스트리)은 [public/js/nav.js](public/js/nav.js) 소유. 모달은 각 페이지 init이 `registerModalClosers({...})`로 등록한다.
+- **Vercel**: [vercel.json](vercel.json)의 `includeFiles`에 `views/**`가 있어야 한다. 서버리스는 런타임 경로 조립(`res.render`)을 추적 못 해서, 빠지면 로컬만 되고 배포에서 템플릿을 못 찾는다.
+
 ### 외부 접속 & 인증
 
 - [server.js](server.js)는 express-session 기반 비밀번호 인증을 적용. `settings.json`의 `adminPassword`가 비어있으면 **인증 비활성**(로컬 운영), 값이 있으면 `/login` 통과 전까지 모든 API/페이지 차단.

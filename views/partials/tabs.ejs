@@ -1,0 +1,38 @@
+<%#
+  [요청] C단계 — GNB. A단계까지 nav.js 가 클릭으로 패널을 토글했으나 이제 전부 <a href>.
+  active(1depth) / activeSub(2depth) 는 서버가 넘겨받아 여기서 클래스만 찍는다.
+  탭을 추가·개명할 곳은 이 파일 한 곳뿐 — 10개 페이지에 동시 반영된다.
+-%>
+<%
+  const TABS = [
+    { key: 'products',  href: '/products',    label: '제품 관리' },
+    { key: 'inpock',    href: '/influencers', label: '인포크/메일 제안' },
+    { key: 'leads',     href: '/leads',       label: '리드 관리', badge: 'leadsDueBadge' },
+    { key: 'catalogs',  href: '/catalogs',    label: '제품추천생성' },
+    { key: 'instagram', href: '/instagram',   label: '📊 인스타분석(미완성)' },
+    { key: 'phrases',   href: '/phrases',     label: '✨ 메모 ✨', right: true },
+  ];
+  const SUBTABS = {
+    products: [
+      { key: 'products',      href: '/products',      label: '제품 목록' },
+      { key: 'manufacturers', href: '/manufacturers', label: '제조사 목록' },
+    ],
+    inpock: [
+      { key: 'influencers', href: '/influencers', label: '인플루언서' },
+      { key: 'run',         href: '/run',         label: '인포크/메일 발송' },
+      { key: 'replies',     href: '/replies',     label: '인포크 답장 확인' },
+    ],
+  };
+%>
+<div class="tabs">
+<% TABS.forEach(function (t) { %>
+  <a class="tab<%= t.right ? ' tab-right' : '' %><%= active === t.key ? ' active' : '' %>" href="<%= t.href %>"><%= t.label %><% if (t.badge) { %> <span class="leads-due-badge" id="<%= t.badge %>" style="display:none">0</span><% } %></a>
+<% }); %>
+</div>
+<% if (SUBTABS[active]) { %>
+<div class="subtabs">
+<% SUBTABS[active].forEach(function (s) { %>
+  <a class="subtab<%= activeSub === s.key ? ' active' : '' %>" href="<%= s.href %>"><%= s.label %></a>
+<% }); %>
+</div>
+<% } %>
