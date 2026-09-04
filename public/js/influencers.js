@@ -47,36 +47,75 @@ async function saveInfluencers() {
 
 // 붙여넣기 처리 (구글 시트에서 탭 구분 데이터)
 const pasteArea = document.getElementById('pasteArea');
+
+// [요청] 한 셀에 메일 여러 개(멀티라인 셀) 지원 — 따옴표("...") 인식 TSV 파서.
+//   시트/엑셀은 줄바꿈 포함 셀을 "..."로 감싸 복사하므로(내부 " 는 "" 이스케이프),
+//   따옴표 안의 \n·\t는 행/셀 구분자가 아니라 셀 내용으로 유지해야 한다.
+function parseClipboardTable(text) {
+  const rows = [];
+  let row = [];
+  let cell = '';
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { cell += '"'; i++; }
+        else inQuotes = false;
+      } else {
+        cell += ch;
+      }
+    } else if (ch === '"' && cell === '') {
+      inQuotes = true;
+    } else if (ch === '\t') {
+      row.push(cell); cell = '';
+    } else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      row.push(cell); cell = '';
+      rows.push(row); row = [];
+    } else {
+      cell += ch;
+    }
+  }
+  row.push(cell);
+  rows.push(row);
+  return rows;
+}
+
 // [요청] C단계 — 발송 페이지도 influencers.js 를 로드하므로(배열·loadInfluencers 사용)
 //   붙여넣기 영역이 없는 페이지에서는 리스너 등록을 건너뛴다.
 if (pasteArea) pasteArea.addEventListener('paste', (e) => {
   e.preventDefault();
   const text = (e.clipboardData || window.clipboardData).getData('text');
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+  const rows = parseClipboardTable(text).filter(cells => cells.some(c => c.trim()));
 
   let added = 0;
-  for (const line of lines) {
-    // 탭 또는 콤마로 분리
-    const parts = line.includes('\t') ? line.split('\t') : line.split(',');
-    // [요청] 두 번째 컬럼이 콤마로 나열된 경우 같은 닉네임/제품으로 다중 행 생성 (탭 분리 라인에서만 적용)
+  for (const cells of rows) {
+    // 탭 구분(셀 2개 이상)이면 그대로, 아니면 기존 콤마 구분 라인으로 처리
+    const isTab = cells.length > 1;
+    const parts = isTab ? cells : cells[0].split(',');
+    // [요청] 두 번째 컬럼이 콤마 나열 또는 멀티라인 셀(줄바꿈 나열)이면
+    //   같은 닉네임/제품으로 URL별 다중 행 생성 (탭 분리 라인에서만 적용)
     if (parts.length >= 3) {
       const nickname = parts[0].trim();
       const productName = parts[2].trim();
-      const urls = line.includes('\t')
-        ? parts[1].split(',').map(s => s.trim()).filter(Boolean)
+      const urls = isTab
+        ? parts[1].split(/[\n,]/).map(s => s.trim()).filter(Boolean)
         : [parts[1].trim()];
       for (const url of urls) {
         influencers.push({ nickname, profileUrl: url, productName });
         added++;
       }
     } else if (parts.length === 2) {
-      // 닉네임 + URL만 있으면 제품명은 비워둠
-      influencers.push({
-        nickname: parts[0].trim(),
-        profileUrl: parts[1].trim(),
-        productName: '',
-      });
-      added++;
+      // 닉네임 + URL만 있으면 제품명은 비워둠 (멀티라인 셀이면 URL별 행 생성)
+      const nickname = parts[0].trim();
+      const urls = isTab
+        ? parts[1].split('\n').map(s => s.trim()).filter(Boolean)
+        : [parts[1].trim()];
+      for (const url of urls) {
+        influencers.push({ nickname, profileUrl: url, productName: '' });
+        added++;
+      }
     }
   }
 

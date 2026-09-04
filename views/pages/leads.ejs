@@ -15,8 +15,9 @@
       <select id="leadsFilter" onchange="renderLeads()">
         <option value="all">전체</option>
         <option value="due">리마인드 필요</option>
-        <option value="pending">진행 중 (pending)</option>
-        <option value="done">완료 (거절/공구진행/무응답)</option>
+        <!-- [요청] 리드 관리 — 최종 결과 항목 개편 (필터 값은 내부 키 유지, 라벨만 갱신) -->
+        <option value="pending">진행중</option>
+        <option value="done">종결 (거절/공구진행/무응답·보류/완료)</option>
       </select>
       <span style="font-size:12px;color:#9ca3af" id="leadsFilterCount"></span>
     </div>

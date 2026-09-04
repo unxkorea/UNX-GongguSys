@@ -7,7 +7,10 @@ const fs = require('fs');
 const config = require('../../config');
 const { supabase } = require('../db');
 
-const ALLOWED_STATUSES = ['pending', '거절', '공구진행', '무응답'];
+// [요청] 리드 관리 — 최종 결과 항목 개편: 저장값 한글 통일 (pending→진행중, 무응답→무응답/보류, 완료 추가)
+const ALLOWED_STATUSES = ['진행중', '거절', '공구진행', '무응답/보류', '완료'];
+// 구 저장값 읽기 시점 자동 흡수 (JSON 롤백 모드의 기존 leads.json 파일 마이그레이션 불필요)
+const LEGACY_STATUS_MAP = { pending: '진행중', '무응답': '무응답/보류' };
 
 // proposal_sent_at + 3일 자동 계산. UTC 기준으로 처리해야 toISOString 변환 시 timezone offset만큼 하루 어긋나지 않음.
 function autoRemindAt(proposalSentAt) {
@@ -28,8 +31,9 @@ function todayIso() {
 }
 
 function sanitizeStatus(s) {
-  if (!s) return 'pending';
-  return ALLOWED_STATUSES.includes(s) ? s : 'pending';
+  if (!s) return '진행중';
+  if (LEGACY_STATUS_MAP[s]) return LEGACY_STATUS_MAP[s];
+  return ALLOWED_STATUSES.includes(s) ? s : '진행중';
 }
 
 // 들어오는 payload를 DB row 형태로 정규화. JSON/Supabase 양쪽에서 공용.
@@ -62,7 +66,7 @@ function rowToLead(r) {
     repliedAt: r.replied_at || '',
     proposalSentAt: r.proposal_sent_at || '',
     remindAt: r.remind_at || '',
-    finalStatus: r.final_status || 'pending',
+    finalStatus: sanitizeStatus(r.final_status),
     notes: r.notes || '',
     // [요청] 리드 관리 — 카톡전환 컬럼/체크박스
     collaborationConverted: !!r.collaboration_converted,
@@ -155,7 +159,7 @@ async function listDueRemindersJson(today) {
   const t = today || todayIso();
   const list = jsonLoadRaw().leads || [];
   return list
-    .filter(r => r.final_status === 'pending' && r.remind_at && r.remind_at <= t)
+    .filter(r => sanitizeStatus(r.final_status) === '진행중' && r.remind_at && r.remind_at <= t)
     .map(r => rowToLead(r));
 }
 
@@ -219,7 +223,7 @@ async function listDueRemindersSupabase(today) {
   const { data, error } = await supabase
     .from('leads')
     .select('*')
-    .eq('final_status', 'pending')
+    .eq('final_status', '진행중')
     .not('remind_at', 'is', null)
     .lte('remind_at', t)
     .order('remind_at', { ascending: true });

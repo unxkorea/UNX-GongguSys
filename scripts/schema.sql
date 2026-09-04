@@ -194,7 +194,8 @@ create index if not exists idx_replies_run on replies(run_id, checked_at);
 --   - replied_at: 인플루언서가 관심있다고 연락 온 날짜
 --   - proposal_sent_at: 제안서 발송일
 --   - remind_at: 리마인드 필요일 (기본 = proposal_sent_at + 3일, 사용자 override 가능)
---   - final_status: pending / 거절 / 공구진행 / 무응답
+--   - final_status: 진행중 / 거절 / 공구진행 / 무응답/보류 / 완료
+--     [요청] 리드 관리 — 최종 결과 항목 개편 (구 pending→진행중, 무응답→무응답/보류, 완료 추가)
 --   - interested_product_name: 관심 보인 제품 이름 (FK 안 검 — 제품 리네임/삭제와 분리)
 --   - suitable_product_note: 어울릴만한 제품 (포맷 미정, 자유 텍스트)
 ------------------------------------------------------------
@@ -207,8 +208,8 @@ create table if not exists leads (
   replied_at               date,
   proposal_sent_at         date,
   remind_at                date,
-  final_status             text        not null default 'pending'
-                           check (final_status in ('pending','거절','공구진행','무응답')),
+  final_status             text        not null default '진행중'
+                           check (final_status in ('진행중','거절','공구진행','무응답/보류','완료')),
   notes                    text,
   -- [요청] 리드 관리 — 카톡전환 컬럼/체크박스 + 표에 메모란 노출
   collaboration_converted  boolean     not null default false,
@@ -218,6 +219,16 @@ create table if not exists leads (
 
 create index if not exists idx_leads_remind
   on leads(final_status, remind_at);
+
+-- [요청] 리드 관리 — 최종 결과 항목 개편: 기존 프로젝트용 멱등 마이그레이션
+--   (create table if not exists 는 기존 테이블의 check 를 못 바꾸므로 여기서 교체.
+--    Supabase SQL Editor에서 이 블록 1회 실행 필요 — 실행 전에는 리드 저장이 check 위반으로 실패)
+alter table leads drop constraint if exists leads_final_status_check;
+update leads set final_status = '진행중'      where final_status = 'pending';
+update leads set final_status = '무응답/보류' where final_status = '무응답';
+alter table leads alter column final_status set default '진행중';
+alter table leads add constraint leads_final_status_check
+  check (final_status in ('진행중','거절','공구진행','무응답/보류','완료'));
 
 ------------------------------------------------------------
 -- 10. settings : key-value (mailBcc, adminPassword 등)

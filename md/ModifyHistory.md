@@ -28,6 +28,31 @@
 [ 실행계획 ]
 
 [ 작업완료 ]
+## 메일 발송에도 '안녕하세요' 닉네임 개인화 적용 (26.09.03)
+인포크 발송에 적용한 닉네임 삽입(첫 번째 `안녕하세요` → `닉네임님 안녕하세요`)을 이메일 발송에도 동일 적용.
+- **신규 [src/personalize.js](src/personalize.js)**: `personalizeGreeting(message, nickname)` 공용 헬퍼 — 첫 번째 `안녕하세요`만 치환, 닉네임 빈값이면 원문 유지, 닉네임이 `님`으로 끝나면 중복 안 붙임. 인포크·메일 두 경로가 같은 로직 공유.
+- **[src/proposal.js](src/proposal.js)**: 기존 인라인 치환 로직을 헬퍼 호출로 교체 (동작 동일, 개인화 로그 유지).
+- **[src/emailSender.js](src/emailSender.js)**: `buildHtmlBody(product, emailAccount, influencer)`로 확장 — 본문 escapeHtml 전에 헬퍼 적용, `sendMail()`이 influencer 전달 + 개인화 시 로그 출력.
+- 검증: 3개 파일 `node --check` + 헬퍼 단위 테스트 8케이스(기본/첫 등장만/빈 닉네임/공백 닉네임/`님` 중복/`안녕하세요` 없음/본문 중간/undefined) 전부 통과.
+## 인플루언서 붙여넣기 — 한 셀에 메일 여러 개(멀티라인 셀) 지원 (26.09.03)
+시트 한 셀에 줄바꿈으로 메일 여러 개를 넣어 복사하면(`마마홈 ⇥ "slayers...↵jiayou..." ⇥ 글리너`) 같은 닉네임/제품으로 메일별 행이 각각 생성되도록 수정. 원인: 시트/엑셀은 줄바꿈 포함 셀을 `"..."`로 감싸 복사하는데, 기존 파서가 따옴표를 무시하고 무조건 `\n`으로 먼저 줄을 쪼개 한 행이 깨진 두 행으로 갈라짐.
+- **[public/js/influencers.js](public/js/influencers.js)**: paste 핸들러에 따옴표 인식 TSV 파서 `parseClipboardTable()` 추가 — 따옴표 안의 `\n`·`\t`는 셀 내용으로 유지, `""`→`"` 이스케이프, CRLF 처리. URL 셀은 콤마에 더해 줄바꿈으로도 분리해 값마다 행 생성(2컬럼 케이스 포함). 기존 단일 셀·콤마 나열·콤마 구분 라인 동작은 그대로.
+- 검증: `node --check` + 파서 단위 테스트 5케이스(멀티라인 셀/일반 탭 행/콤마 나열/콤마 라인/2컬럼 멀티라인) 전부 통과.
+## 인포크 발송 — 제안 내용 '안녕하세요' 앞에 닉네임 자동 삽입 (26.09.03)
+제품의 제안/메일내용에 `안녕하세요`가 있으면 인포크 발송 시 첫 번째 `안녕하세요` 앞에 인플루언서 닉네임+`님 `을 붙여 `마마홈님 안녕하세요`로 개인화.
+- **[src/proposal.js](src/proposal.js)** `sendProposal()` 제안 내용 입력부: 첫 번째 `안녕하세요`만 치환, 닉네임 비어 있으면 미적용, 닉네임이 이미 `님`으로 끝나면 `님` 중복 안 붙임. 치환 시 로그에 개인화 문구 출력.
+- 이메일 발송([src/emailSender.js](src/emailSender.js))은 무변경 — 인포크 경로 한정.
+- 검증: `node --check` 통과. 실발송 확인은 `npm run dry-run` 로그로 가능.
+## 추천 카탈로그 — URL 복사 안됨 수정 (26.09.02)
+제품추천(카탈로그) 생성 결과 박스의 "복사" 버튼이 동작하지 않음. 원인: `copyText()`([public/js/util.js](public/js/util.js))가 `navigator.clipboard.writeText`만 사용 — 이 API는 secure context(https/localhost) 전용이라 LAN IP 등 http 접속 시 `navigator.clipboard`가 `undefined`로 조용히 실패. clipboard API 부재/실패 시 임시 textarea + `document.execCommand('copy')` 폴백 추가, 폴백도 실패하면 기존 alert 유지. 추천 탭 결과 박스·목록 행별 복사·문구 복사 모두 이 함수를 공유하므로 한 곳 수정으로 해결.
+## 리드 관리 — 최종 결과 항목 개편 (26.09.02)
+최종 결과(final_status)를 한글 5종으로 통일: `진행중` / `거절` / `공구진행` / `무응답/보류` / `완료` (구 `pending`→`진행중`, `무응답`→`무응답/보류` 개명, `완료` 신규). 기본값 `진행중`.
+- **[scripts/schema.sql](scripts/schema.sql)**: check 제약·기본값 교체 + 기존 프로젝트용 멱등 마이그레이션 블록(제약 drop → 값 UPDATE → 제약 add). **⚠ Supabase SQL Editor에서 마이그레이션 블록 1회 실행 필요 — 실행 전에는 리드 저장이 check 위반으로 실패.**
+- **[src/repo/leadsRepo.js](src/repo/leadsRepo.js)**: `ALLOWED_STATUSES` 교체 + `LEGACY_STATUS_MAP`으로 구 값 읽기 시점 자동 흡수(JSON 롤백 모드의 기존 leads.json은 파일 마이그레이션 불필요), `listDueReminders` 양 모드 필터 `'진행중'`으로.
+- **[public/js/util.js](public/js/util.js)** `isDue()` / **[public/js/leads.js](public/js/leads.js)** 필터·정렬·모달 기본값: `'pending'` 비교 → `'진행중'`. 상태 칩 클래스는 `/` 등 특수문자를 제거해 생성(`lead-status-무응답보류`).
+- **[views/partials/modals/lead.ejs](views/partials/modals/lead.ejs)**: select 옵션 5종. **[views/pages/leads.ejs](views/pages/leads.ejs)**: 필터 라벨 "진행중" / "종결 (거절/공구진행/무응답·보류/완료)" — 신규 상태 `완료`와 혼동 방지 위해 done 필터명을 "종결"로. 내부 필터 키(`pending`/`done`)는 유지.
+- **[public/css/app.css](public/css/app.css)**: `.lead-status-진행중`(인디고) / `.lead-status-무응답보류`(회색) / `.lead-status-완료`(파랑) — 거절·공구진행은 기존 유지.
+- server.js는 repo의 `ALLOWED_STATUSES`를 그대로 검증에 쓰므로 무수정. 검증: 4개 파일 `node --check` 통과.
 ## 답장확인 '거절' 표시하기 (26.08.27)
 답장확인 결과에 거절 건수 병기 — `N명에게서 답장 (M명 거절)`. 집계 기준: **안읽음 뱃지가 있는 채팅방 중** 마지막 메시지가 `(제안 거절)`로 시작하는 채팅방 수 (M ⊆ N, 이미 확인한 과거 거절은 미집계). 거절 0건이면 괄호 생략.
 - **[src/selectors.js](src/selectors.js)** `chat`: `channelPreview`(`div[role="link"]:has(p.sendbird-channel-preview__content__lower__last-message)`) / `lastMessage` / `rejectPrefix`(`(제안 거절)`) 추가. css 해시 클래스는 빌드마다 바뀌어 sendbird 고정 클래스만 사용.

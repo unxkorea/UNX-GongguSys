@@ -4,6 +4,7 @@ const path = require('path');
 const nodemailer = require('nodemailer');
 const config = require('../config');
 const emailAccountsRepo = require('./repo/emailAccountsRepo');
+const { personalizeGreeting } = require('./personalize');
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -85,8 +86,10 @@ function buildSignatureAttachments(emailAccount) {
   }];
 }
 
-function buildHtmlBody(product, emailAccount) {
-  const body = escapeHtml(product.offerMessage || '').replace(/\n/g, '<br>');
+function buildHtmlBody(product, emailAccount, influencer) {
+  // [요청] 메일 본문에도 '안녕하세요' 앞에 닉네임+님 삽입 (인포크 발송과 공용 헬퍼)
+  const greeting = personalizeGreeting(product.offerMessage, influencer && influencer.nickname);
+  const body = escapeHtml(greeting.text).replace(/\n/g, '<br>');
   const linked = linkify(body);
   const photos = Array.isArray(product.photos) ? product.photos : [];
   const imgs = photos
@@ -132,6 +135,12 @@ async function sendMail(emailAccount, influencer, product) {
     return { success: false, error: '유효하지 않은 이메일 주소' };
   }
 
+  // [요청] 개인화 여부 로그 — 실제 치환은 buildHtmlBody 내부의 동일 헬퍼가 수행
+  const greeting = personalizeGreeting(product.offerMessage, influencer.nickname);
+  if (greeting.personalized) {
+    console.log(`${label} 메일 본문 개인화: "${greeting.honorific} 안녕하세요"`);
+  }
+
   try {
     const transporter = createTransport(emailAccount);
     // [요청] 참조자 이메일 빈값이면 BCC 키 자체 제외 — nodemailer에 빈 문자열 안 넘김
@@ -139,7 +148,7 @@ async function sendMail(emailAccount, influencer, product) {
       from: `"${emailAccount.senderName || emailAccount.email}" <${emailAccount.email}>`,
       to,
       subject: buildSubject(product),
-      html: buildHtmlBody(product, emailAccount),
+      html: buildHtmlBody(product, emailAccount, influencer),
       attachments: [
         ...buildAttachments(product),
         ...buildSignatureAttachments(emailAccount),

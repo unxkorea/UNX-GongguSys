@@ -72,7 +72,8 @@ function addDaysIso(iso, days) {
 }
 
 function isDue(lead, todayStr) {
-  return lead.finalStatus === 'pending' && lead.remindAt && lead.remindAt <= todayStr;
+  // [요청] 리드 관리 — 최종 결과 항목 개편: 저장값 'pending' → '진행중'
+  return lead.finalStatus === '진행중' && lead.remindAt && lead.remindAt <= todayStr;
 }
 
 // [요청] 가벼운 토스트 — 동일 노드 재사용, 연속 호출 시 타이머 리셋
@@ -91,9 +92,29 @@ function showToast(message) {
   _toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
 }
 
+// [요청] 추천 카탈로그 — URL 복사 안됨 수정: clipboard API는 secure context(https/localhost) 전용이라
+// http(LAN IP 등) 접속 시 undefined → execCommand('copy') 폴백 추가
 function copyText(text) {
-  navigator.clipboard.writeText(text).then(
-    () => showToast('복사완료!'),
-    () => alert('복사 실패: ' + text)
-  );
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(
+      () => showToast('복사완료!'),
+      () => copyTextFallback(text)
+    );
+  } else {
+    copyTextFallback(text);
+  }
+}
+
+function copyTextFallback(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+  document.body.removeChild(ta);
+  if (ok) showToast('복사완료!');
+  else alert('복사 실패: ' + text);
 }

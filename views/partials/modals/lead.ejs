@@ -37,11 +37,13 @@
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:end">
       <div class="form-group" style="margin-bottom:0">
         <label>최종 결과</label>
+        <!-- [요청] 리드 관리 — 최종 결과 항목 개편 -->
         <select id="leadFinalStatus">
-          <option value="pending">진행 중 (pending)</option>
+          <option value="진행중">진행중</option>
           <option value="공구진행">공구진행</option>
           <option value="거절">거절</option>
-          <option value="무응답">무응답</option>
+          <option value="무응답/보류">무응답/보류</option>
+          <option value="완료">완료</option>
         </select>
       </div>
       <!-- [요청] 리드 관리 — 카톡전환 체크박스 -->

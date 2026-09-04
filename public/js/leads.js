@@ -25,15 +25,16 @@ function renderLeads() {
   if (filter === 'due') {
     filtered = filtered.filter(l => isDue(l, today));
   } else if (filter === 'pending') {
-    filtered = filtered.filter(l => l.finalStatus === 'pending');
+    // [요청] 리드 관리 — 최종 결과 항목 개편: 저장값 'pending' → '진행중'
+    filtered = filtered.filter(l => l.finalStatus === '진행중');
   } else if (filter === 'done') {
-    filtered = filtered.filter(l => l.finalStatus !== 'pending');
+    filtered = filtered.filter(l => l.finalStatus !== '진행중');
   }
 
   // [요청] 진행 중 상단 + 관심 연락일 최신순
   filtered.sort((a, b) => {
-    const ap = a.finalStatus === 'pending' ? 0 : 1;
-    const bp = b.finalStatus === 'pending' ? 0 : 1;
+    const ap = a.finalStatus === '진행중' ? 0 : 1;
+    const bp = b.finalStatus === '진행중' ? 0 : 1;
     if (ap !== bp) return ap - bp;
     return (b.repliedAt || '').localeCompare(a.repliedAt || '');
   });
@@ -56,8 +57,9 @@ function renderLeads() {
   }
   tbody.innerHTML = filtered.map(l => {
     const due = isDue(l, today);
-    const statusClass = `lead-status-${l.finalStatus || 'pending'}`;
-    const statusLabel = l.finalStatus === 'pending' ? '진행 중' : l.finalStatus;
+    // [요청] 리드 관리 — 최종 결과 항목 개편: 값=표기 일치. '무응답/보류'의 '/'는 CSS 클래스에 못 쓰므로 특수문자 제거
+    const statusLabel = l.finalStatus || '진행중';
+    const statusClass = `lead-status-${statusLabel.replace(/[^0-9A-Za-z가-힣]/g, '')}`;
     // [요청] 리드 관리 — 카톡전환 컬럼/체크박스 + 표에 메모란 노출
     const collabCell = l.collaborationConverted
       ? '<span title="카톡전환됨" style="color:#16a34a;font-weight:600">✅</span>'
@@ -69,7 +71,7 @@ function renderLeads() {
       <td>${esc(l.repliedAt || '-')}</td>
       <td>${due ? `<b style="color:#b91c1c">${esc(l.remindAt)}</b>` : esc(l.remindAt || '-')}</td>
       <td style="max-width:200px;white-space:pre-wrap;color:#6b7280;font-size:12px">${esc(l.suitableProductNote || '-')}</td>
-      <td><span class="lead-status ${statusClass}">${esc(statusLabel || '진행 중')}</span></td>
+      <td><span class="lead-status ${statusClass}">${esc(statusLabel)}</span></td>
       <td style="text-align:center">${collabCell}</td>
       <td style="max-width:200px;white-space:pre-wrap;color:#6b7280;font-size:12px">${esc(l.notes || '-')}</td>
       <td>
@@ -103,7 +105,7 @@ function openLeadModal(id) {
   document.getElementById('leadRepliedAt').value = lead?.repliedAt || todayIso();
   document.getElementById('leadProposalSentAt').value = lead?.proposalSentAt || '';
   document.getElementById('leadRemindAt').value = lead?.remindAt || '';
-  document.getElementById('leadFinalStatus').value = lead?.finalStatus || 'pending';
+  document.getElementById('leadFinalStatus').value = lead?.finalStatus || '진행중';
   document.getElementById('leadSuitableNote').value = lead?.suitableProductNote || '';
   document.getElementById('leadNotes').value = lead?.notes || '';
   // [요청] 리드 관리 — 카톡전환 체크박스 복원

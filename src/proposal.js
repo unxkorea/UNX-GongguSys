@@ -1,5 +1,6 @@
 const config = require('../config');
 const selectors = require('./selectors');
+const { personalizeGreeting } = require('./personalize');
 // [요청] Supabase 모드에서 product.photos가 HTTPS URL이면
 // Playwright setInputFiles가 처리 못 하므로 로컬 경로로 해석한다.
 const fs = require('fs');
@@ -213,7 +214,12 @@ async function sendProposal(page, influencer, product, dryRun = false, accountNa
     console.log(`${label} USP 입력 완료`);
 
     // ── 2-7: 제안 내용 ──
-    await newPage.fill(selectors.proposal.offerMessageTextarea, product.offerMessage);
+    // [요청] 제안 내용에 '안녕하세요'가 있으면 첫 번째 등장 앞에 닉네임+님 삽입 (메일 발송과 공용 헬퍼)
+    const greeting = personalizeGreeting(product.offerMessage, influencer.nickname);
+    if (greeting.personalized) {
+      console.log(`${label} 제안 내용 개인화: "${greeting.honorific} 안녕하세요"`);
+    }
+    await newPage.fill(selectors.proposal.offerMessageTextarea, greeting.text);
     console.log(`${label} 제안 내용 입력 완료`);
 
     // ── 3: 제안서 생성 버튼 클릭 ──
