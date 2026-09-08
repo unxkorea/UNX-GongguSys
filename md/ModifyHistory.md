@@ -28,6 +28,33 @@
 [ 실행계획 ]
 
 [ 작업완료 ]
+## 제품 저장 느림 개선 — 제조사 카운트 재로드를 백그라운드로 (26.09.04)
+증상: 제조사-제품 탭에서 제품 저장 시 완료 알림까지 오래 걸림. 원인: '연결된 제품 N개' 카운트 수정 때 넣은 `await loadManufacturers()`가 저장 요청 뒤에 순차로 붙었는데, 이 API는 서버에서 제조사별 제품 수 집계를 위해 전체 제품+사진까지 조회해 무거움(Supabase 왕복 추가).
+- **[public/js/products.js](../public/js/products.js)**: `saveOneProduct`/`removeProduct`의 재로드를 `await` 없이 `loadManufacturers().then(renderManufacturers)` 백그라운드 실행으로 변경 — "저장되었습니다"는 저장 직후 즉시 뜨고, 카운트는 직후 조용히 갱신(정확성 유지).
+- 검증: `node --check` 통과.
+## 브라우저 alert/confirm 전면 모달 전환 — 공용 다이얼로그 (26.09.04)
+관리 UI의 모든 `alert()`(74곳)/`confirm()`(17곳, 총 91곳·13개 js)을 브라우저 기본 창 대신 **전 페이지 공용 다이얼로그 1개**로 교체. login.html·public/recommend는 alert/confirm 미사용이라 무영향.
+- **신규 [views/partials/modals/dialog.ejs](../views/partials/modals/dialog.ejs)** (`#appDialogModal`): [views/layout.ejs](../views/layout.ejs)가 페이지 모달들 뒤(DOM 마지막)에 상시 포함 → 다른 모달 위에 겹쳐도 ESC가 다이얼로그부터 닫힘. z-index 1200(기존 모달 1000 위). 배경 클릭으로는 안 닫힘(기존 규약).
+- **[public/js/util.js](../public/js/util.js)**: `showAlert(msg)`([확인]만) / `showConfirm(msg)`(Promise&lt;boolean&gt;, [확인]/[취소]) — 메시지 `textContent`+`pre-line`(기존 `\n` 문구 유지), 열릴 때 [확인] 포커스(Enter로 닫기), 중복 호출 시 이전 Promise는 false로 정리. **[public/js/nav.js](../public/js/nav.js)**: `MODAL_CLOSERS`에 공통 등록(ESC = confirm 취소).
+- **호출부**: `alert(` → `showAlert(` 74곳(node 스크립트 일괄, UTF-8 보존). `!confirm(x)` → `!(await showConfirm(x))` 17곳 — 15곳은 이미 async 함수, sync였던 `removeEmailAccount`([accounts.js](../public/js/accounts.js))/`clearInfluencers`([influencers.js](../public/js/influencers.js))는 async 전환(호출처가 onclick뿐임을 확인). [manufacturers.js](../public/js/manufacturers.js)의 `을(를)` 괄호 포함 문구 1곳은 수동 치환.
+- 검증: 클라이언트 JS 26개 전부 `node --check` 통과, bare `alert(`/`confirm(` 잔존 0건, 11개 전 페이지 렌더에 다이얼로그 포함 확인, showAlert 직후 페이지 이동/리로드하는 코드 없음(비차단 전환으로 인한 메시지 유실 케이스 없음) 확인.
+## 제조사 삭제/협업종료 경고의 '연결된 제품 N개' 낡은 값 수정 (26.09.04)
+증상: 제조사 생성 → 제품 추가·저장 후 제조사 삭제 모달을 열면 "연결된 제품 0개"로 표시. 실제 삭제 시 제품은 같이 지워지므로(서버 캐스케이드 정상) **표시만 낡은 값**이라 오판 위험이 있었음. 원인: 모달/confirm이 쓰는 `m.productCount`가 마지막 `loadManufacturers()` 시점 값인데, 제품 저장/삭제가 제조사 목록을 재로드하지 않았음.
+- **[public/js/products.js](../public/js/products.js)**: `saveOneProduct()` 저장 성공 경로 + `removeProduct()`의 DB 삭제 성공 경로(신규 미저장 stub 삭제는 제외)에 `loadManufacturers()` 재로드 + `renderManufacturers()` 추가(`typeof` 가드). renderManufacturers의 훅으로 제조사-제품 탭도 함께 갱신됨. 협업종료 confirm의 "제품 N개도 함께 협업종료" 문구도 같은 값이라 동시 해결.
+- 검증: `node --check` 통과. 실데이터 생성을 피하려 API 재현은 생략 — UI에서 제조사 생성→제품 저장→삭제 모달 열어 "연결된 제품 1개" 표시로 확인 요망.
+## 제조사-제품 탭 — '+ 제조사 추가'를 팝업 모달로 (26.09.04)
+제조사-제품 탭의 '+ 제조사 추가'를 인라인 폼 대신 팝업 모달로 전환. 기존 모달 골격(`.modal-backdrop` + 흰 카드) 재사용 — ESC로 닫힘(nav.js 공통 핸들러 등록), 배경 클릭으로는 안 닫힘(backdrop에 클릭 핸들러 없음). `/manufacturers` 탭의 인라인 폼은 무변경.
+- **신규 [views/partials/modals/manufacturer.ejs](../views/partials/modals/manufacturer.ejs)**: `#manufacturerModal` — 제조사명(필수)/담당자/연락처/허들/일정 참고사항/제조사 메모, input id는 `mfrModal*`로 기존 폼과 분리.
+- **[public/js/manufacturerProducts.js](../public/js/manufacturerProducts.js)**: `openManufacturerModal`/`closeManufacturerModal`/`saveManufacturerModal` — 저장 성공 시 목록 재로드 후 새 제조사를 좌측에서 자동 선택 + 토스트.
+- **[views/pages/manufacturerProducts.ejs](../views/pages/manufacturerProducts.ejs)**: 버튼을 모달 호출로 교체, 미사용 `#manufacturerFormBox` 제거. **[server.js](../server.js)**: `modals`에 `'manufacturer'` 추가. **[public/js/init/manufacturerProducts.js](../public/js/init/manufacturerProducts.js)**: `registerModalClosers`에 등록.
+- 검증: JS 3개 `node --check` 통과, 로컬 서버 렌더로 모달 마크업·버튼 교체·폼박스 제거 확인.
+## 제조사-제품 통합 탭 신설 — 2단 마스터-디테일 + CRUD (26.09.04)
+제품 관리 GNB에 '제품 목록'/'제조사 목록'은 그대로 두고 3번째 서브탭 '제조사-제품'(`/manufacturer-products`) 신설. 좌측 제조사 목록(제품 수·'미지정' 가상 그룹 포함) 클릭 → 우측에 제조사 기본 정보(담당자/연락처/허들/일정 참고사항/제조사 메모) + 그 제조사 제품들의 **완전한 편집 카드**. 제조사 추가/수정/협업종료/삭제 + 제품 추가/저장/삭제 CRUD 전부 이 탭에서 가능. 서버 API·DB 무변경.
+- **핵심 구조 — 기존 CRUD 전면 재사용**: [public/js/products.js](../public/js/products.js)의 제품 카드 템플릿을 `productCardHtml(i)` 함수로 추출(내용 무변경)하고, `renderProducts()`/`renderManufacturers()`([public/js/manufacturers.js](../public/js/manufacturers.js)) 최상단에 훅 추가 — `renderManufacturerProductsPage`가 로드돼 있으면 호출. 기존 핸들러들(카드 저장/삭제/사진/후킹문구, 제조사 인라인 편집/협업종료/삭제 모달)이 전역 배열+`renderX()`로 돌아가므로 훅만으로 새 탭이 실시간 동기화됨. 새 탭 렌더는 역호출 금지(무한루프 방지).
+- **신규 [public/js/manufacturerProducts.js](../public/js/manufacturerProducts.js)**: 좌측 리스트/우측 디테일 렌더. 검색창 1개 — 제조사명 매칭 → 좌측 필터, 제품 매칭 → 좌측 `매칭 N건` 뱃지 + 우측이 제조사 무관 평면 결과로 전환(카드마다 제조사 칩, 칩·좌측 클릭 = 해당 제조사 선택+검색 해제). `+ 제품 추가`는 선택 제조사 자동 연결(브랜드명·빈 허들/일정 상속). '협업종료 포함' 토글 양쪽 적용. 선택 제조사가 사라지면(삭제 등) 첫 항목 자동 선택.
+- **신규 [views/pages/manufacturerProducts.ejs](../views/pages/manufacturerProducts.ejs)** / **[public/js/init/manufacturerProducts.js](../public/js/init/manufacturerProducts.js)**: 액션바(검색·토글·+ 제조사 추가는 기존 `openManufacturerForm()` 재사용 — `#manufacturerFormBox` 포함) + `#mpLeft`/`#mpRight` 2단. init은 데이터 로드 후 훅으로 초기 렌더 + `#mpRight` dirty 마킹 리스너 + 모달 ESC 등록.
+- **[views/partials/tabs.ejs](../views/partials/tabs.ejs)**: `SUBTABS.products`에 `mfrProducts` 추가. **[server.js](../server.js)**: `UI_PAGES`에 라우트 추가(`modals: ['hooking', 'manufacturerDelete']`). **[public/css/app.css](../public/css/app.css)**: `.mp-*` 스타일(280px/1fr 그리드, 900px 이하 1단 스택, 선택 하이라이트, 제조사 칩).
+- 검증: JS 5개 `node --check` 통과. 로컬 서버 기동 후 로그인 세션으로 `/manufacturer-products` 렌더 확인(컨테이너·스크립트·모달·서브탭 active 전부 OK), 기존 `/products`·`/manufacturers` 회귀 없음 확인.
 ## 메일 발송에도 '안녕하세요' 닉네임 개인화 적용 (26.09.03)
 인포크 발송에 적용한 닉네임 삽입(첫 번째 `안녕하세요` → `닉네임님 안녕하세요`)을 이메일 발송에도 동일 적용.
 - **신규 [src/personalize.js](src/personalize.js)**: `personalizeGreeting(message, nickname)` 공용 헬퍼 — 첫 번째 `안녕하세요`만 치환, 닉네임 빈값이면 원문 유지, 닉네임이 `님`으로 끝나면 중복 안 붙임. 인포크·메일 두 경로가 같은 로직 공유.

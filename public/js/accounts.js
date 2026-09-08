@@ -65,12 +65,12 @@ function removeAccount(i) {
 async function saveAccounts() {
   const toSave = accounts.map(({ sent, remaining, week, ...rest }) => rest);
   await fetch('/api/accounts', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(toSave) });
-  alert('계정 정보가 저장되었습니다.');
+  showAlert('계정 정보가 저장되었습니다.');
   loadAccounts();
 }
 
 async function resetCounts() {
-  if (!confirm('모든 계정의 이번 주 발송 횟수를 초기화하시겠습니까?')) return;
+  if (!(await showConfirm('모든 계정의 이번 주 발송 횟수를 초기화하시겠습니까?'))) return;
   await fetch('/api/accounts/reset', { method: 'POST' });
   loadAccounts();
 }
@@ -141,15 +141,16 @@ function addEmailAccount() {
   renderEmailAccounts();
 }
 
-function removeEmailAccount(i) {
-  if (!confirm('이 이메일 계정을 삭제하시겠습니까?')) return;
+// [요청] alert/confirm 전면 모달 전환 — 공용 showConfirm 사용(async 전환, onclick 전용이라 안전)
+async function removeEmailAccount(i) {
+  if (!(await showConfirm('이 이메일 계정을 삭제하시겠습니까?'))) return;
   emailAccounts.splice(i, 1);
   renderEmailAccounts();
 }
 
 async function saveEmailAccounts() {
   await fetch('/api/emailAccounts', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(emailAccounts) });
-  alert('이메일 계정 정보가 저장되었습니다.');
+  showAlert('이메일 계정 정보가 저장되었습니다.');
   loadEmailAccounts();
 }
 

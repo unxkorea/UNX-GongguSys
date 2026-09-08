@@ -41,43 +41,43 @@ async function addEmployee() {
       body: JSON.stringify({ name })
     });
     const data = await res.json();
-    if (!res.ok) { alert(data.error || '추가 실패'); return; }
+    if (!res.ok) { showAlert(data.error || '추가 실패'); return; }
     input.value = '';
     await loadEmployees();
     renderEmployeesAdmin();
     showToast('직원 추가됨');
-  } catch (e) { alert('추가 실패: ' + e.message); }
+  } catch (e) { showAlert('추가 실패: ' + e.message); }
 }
 
 async function renameEmployee(id) {
   const emp = employees.find(e => e.id === id);
   const name = prompt('새 이름', emp ? emp.name : '');
   if (name === null) return;
-  if (!name.trim()) { alert('이름은 비울 수 없습니다.'); return; }
+  if (!name.trim()) { showAlert('이름은 비울 수 없습니다.'); return; }
   try {
     const res = await fetch('/api/employees/' + id, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: name.trim() })
     });
     const data = await res.json();
-    if (!res.ok) { alert(data.error || '변경 실패'); return; }
+    if (!res.ok) { showAlert(data.error || '변경 실패'); return; }
     await loadEmployees();
     renderEmployeesAdmin();
     showToast('이름 변경됨');
-  } catch (e) { alert('변경 실패: ' + e.message); }
+  } catch (e) { showAlert('변경 실패: ' + e.message); }
 }
 
 async function deleteEmployee(id) {
   const emp = employees.find(e => e.id === id);
-  if (!confirm(`'${emp ? emp.name : ''}' 직원과 해당 직원의 모든 문구를 삭제합니다. 계속할까요?`)) return;
+  if (!(await showConfirm(`'${emp ? emp.name : ''}' 직원과 해당 직원의 모든 문구를 삭제합니다. 계속할까요?`))) return;
   try {
     const res = await fetch('/api/employees/' + id, { method: 'DELETE' });
-    if (!res.ok) { const d = await res.json(); alert(d.error || '삭제 실패'); return; }
+    if (!res.ok) { const d = await res.json(); showAlert(d.error || '삭제 실패'); return; }
     if (selectedEmployeeId === id) selectedEmployeeId = null;
     await loadEmployees();
     renderEmployeesAdmin();
     showToast('직원 삭제됨');
-  } catch (e) { alert('삭제 실패: ' + e.message); }
+  } catch (e) { showAlert('삭제 실패: ' + e.message); }
 }
 
 // ── 문구 탭: 직원 서브탭 ──
@@ -136,7 +136,7 @@ function renderPhrases() {
   const pinnedCount = currentPhrases.filter(p => p.pinned).length;
   const countHtml = `<div class="phrase-pin-count">📌 고정 ${pinnedCount}/3</div>`;
   list.innerHTML = countHtml + currentPhrases.map(p => {
-    // [요청] 수정은 alert(prompt) 대신 카드 내부 인라인 폼으로
+    // [요청] 수정은 showAlert(prompt) 대신 카드 내부 인라인 폼으로
     if (p.id === editingPhraseId) {
       // [요청] 메모 수정 textarea 높이 자동 — 저장된 내용 줄 수에 맞춰 rows(최소 4 ~ 최대 30)
       return `
@@ -172,10 +172,10 @@ async function togglePin(id, pinned) {
       body: JSON.stringify({ pinned })
     });
     const data = await res.json();
-    if (!res.ok) { alert(data.error || '고정 변경 실패'); return; }
+    if (!res.ok) { showAlert(data.error || '고정 변경 실패'); return; }
     loadPhrases(selectedEmployeeId);
     showToast(pinned ? '문구를 고정했습니다' : '고정을 해제했습니다');
-  } catch (e) { alert('고정 변경 실패: ' + e.message); }
+  } catch (e) { showAlert('고정 변경 실패: ' + e.message); }
 }
 
 function copyPhrase(id) {
@@ -194,10 +194,10 @@ async function addPhrase() {
       body: JSON.stringify({ employeeId: selectedEmployeeId, title, content })
     });
     const data = await res.json();
-    if (!res.ok) { alert(data.error || '추가 실패'); return; }
+    if (!res.ok) { showAlert(data.error || '추가 실패'); return; }
     loadPhrases(selectedEmployeeId);
     showToast('문구 추가됨');
-  } catch (e) { alert('추가 실패: ' + e.message); }
+  } catch (e) { showAlert('추가 실패: ' + e.message); }
 }
 
 // [요청] 인라인 수정 — 카드를 편집 폼으로 전환(목록 재요청 없이 렌더만)
@@ -224,19 +224,19 @@ async function savePhraseEdit(id) {
       body: JSON.stringify({ title, content })
     });
     const data = await res.json();
-    if (!res.ok) { alert(data.error || '수정 실패'); return; }
+    if (!res.ok) { showAlert(data.error || '수정 실패'); return; }
     editingPhraseId = null;
     loadPhrases(selectedEmployeeId);
     showToast('문구 수정됨');
-  } catch (e) { alert('수정 실패: ' + e.message); }
+  } catch (e) { showAlert('수정 실패: ' + e.message); }
 }
 
 async function deletePhrase(id) {
-  if (!confirm('이 문구를 삭제할까요?')) return;
+  if (!(await showConfirm('이 문구를 삭제할까요?'))) return;
   try {
     const res = await fetch('/api/phrases/' + id, { method: 'DELETE' });
-    if (!res.ok) { const d = await res.json(); alert(d.error || '삭제 실패'); return; }
+    if (!res.ok) { const d = await res.json(); showAlert(d.error || '삭제 실패'); return; }
     loadPhrases(selectedEmployeeId);
     showToast('문구 삭제됨');
-  } catch (e) { alert('삭제 실패: ' + e.message); }
+  } catch (e) { showAlert('삭제 실패: ' + e.message); }
 }

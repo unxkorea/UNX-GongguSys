@@ -140,7 +140,7 @@ function closeLeadModal() {
 async function saveLead() {
   const nickname = document.getElementById('leadNickname').value.trim();
   if (!nickname) {
-    alert('닉네임은 필수입니다.');
+    showAlert('닉네임은 필수입니다.');
     return;
   }
   const payload = {
@@ -165,7 +165,7 @@ async function saveLead() {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    alert(data.error || `저장 실패: ${res.status}`);
+    showAlert(data.error || `저장 실패: ${res.status}`);
     return;
   }
   closeLeadModal();
@@ -174,11 +174,11 @@ async function saveLead() {
 
 async function deleteLead(id) {
   const lead = leads.find(l => l.id === id);
-  if (!confirm(`"${lead?.nickname || ''}" 리드를 삭제할까요?`)) return;
+  if (!(await showConfirm(`"${lead?.nickname || ''}" 리드를 삭제할까요?`))) return;
   const res = await fetch(`/api/leads/${id}`, { method: 'DELETE' });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    alert(data.error || `삭제 실패: ${res.status}`);
+    showAlert(data.error || `삭제 실패: ${res.status}`);
     return;
   }
   await loadLeads();

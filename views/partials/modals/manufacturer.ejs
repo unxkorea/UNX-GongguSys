@@ -1,0 +1,21 @@
+<!-- [요청] 제조사-제품 탭 — '+ 제조사 추가' 팝업 모달 (ESC 닫힘: nav.js 공통 핸들러, 배경 클릭으로는 안 닫힘) -->
+<div id="manufacturerModal" class="modal-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:white;border-radius:12px;padding:24px;max-width:640px;width:94%;max-height:92vh;overflow-y:auto;display:flex;flex-direction:column;gap:14px;box-shadow:0 10px 40px rgba(0,0,0,0.2)">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h3 style="margin:0;font-size:18px">제조사 추가</h3>
+      <button class="btn btn-sm" style="background:transparent;color:#6b7280;padding:4px 8px" onclick="closeManufacturerModal()">✕</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group" style="margin-bottom:0"><label><span style="color:#ef4444;margin-right:2px">*</span>제조사명</label><input id="mfrModalName" type="text"></div>
+      <div class="form-group" style="margin-bottom:0"><label>담당자</label><input id="mfrModalContactPerson" type="text" placeholder="선택"></div>
+      <div class="form-group" style="margin-bottom:0"><label>연락처</label><input id="mfrModalContact" type="text" placeholder="선택 (전화·이메일·카톡 등)"></div>
+      <div class="form-group" style="margin-bottom:0"><label>허들</label><input id="mfrModalHurdle" type="text" placeholder="선택 (제품 기본값)"></div>
+      <div class="form-group" style="margin-bottom:0;grid-column:1/-1"><label>일정 참고사항</label><input id="mfrModalSchedule" type="text" placeholder="선택 (제품 기본값)"></div>
+    </div>
+    <div class="form-group" style="margin-bottom:0"><label>제조사 메모</label><textarea id="mfrModalMemo" rows="3" placeholder="선택"></textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-outline btn-sm" onclick="closeManufacturerModal()">취소</button>
+      <button class="btn btn-primary btn-sm" onclick="saveManufacturerModal()">저장</button>
+    </div>
+  </div>
+</div>

@@ -220,8 +220,8 @@ function removeFromSelected(pid) {
 // [요청] 편집 모드(editingCatalogId 있음) → PUT, 신규/복제 → POST. URL(code)은 편집 시 유지.
 async function submitCatalog() {
   const nickname = document.getElementById('catalogNickname').value.trim();
-  if (!nickname) { alert('닉네임은 필수입니다.'); return; }
-  if (!selectedProductIds.length) { alert('제품을 1개 이상 선택해야 합니다.'); return; }
+  if (!nickname) { showAlert('닉네임은 필수입니다.'); return; }
+  if (!selectedProductIds.length) { showAlert('제품을 1개 이상 선택해야 합니다.'); return; }
   const leadId = Number(document.getElementById('catalogLeadSelect').value) || null;
   const title = document.getElementById('catalogTitle').value.trim() || `${nickname}님 공동구매 제안`;
 
@@ -241,7 +241,7 @@ async function submitCatalog() {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    alert(data.error || `${isEdit ? '수정' : '생성'} 실패: ${res.status}`);
+    showAlert(data.error || `${isEdit ? '수정' : '생성'} 실패: ${res.status}`);
     return;
   }
   // 결과 표시 (편집 시 URL 동일, 타이틀만 "수정됨"으로)
@@ -261,11 +261,11 @@ function copyResultUrl() {
 
 async function deleteCatalog(id) {
   const cat = catalogs.find(c => c.id === id);
-  if (!confirm(`"${cat?.title || cat?.influencerNickname || ''}" 카탈로그를 삭제할까요?`)) return;
+  if (!(await showConfirm(`"${cat?.title || cat?.influencerNickname || ''}" 카탈로그를 삭제할까요?`))) return;
   const res = await fetch(`/api/catalogs/${id}`, { method: 'DELETE' });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    alert(data.error || `삭제 실패: ${res.status}`);
+    showAlert(data.error || `삭제 실패: ${res.status}`);
     return;
   }
   await loadCatalogs();

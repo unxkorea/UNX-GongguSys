@@ -58,17 +58,17 @@ function selectManufacturer(i, val) {
 async function toggleProductStatus(i) {
   const p = products[i];
   if (!p) return;
-  if (p.id == null) { alert('먼저 저장한 뒤에 협업종료 처리할 수 있습니다.'); return; }
+  if (p.id == null) { showAlert('먼저 저장한 뒤에 협업종료 처리할 수 있습니다.'); return; }
   const newStatus = p.status === '협업종료' ? '' : '협업종료';
-  if (newStatus === '협업종료' && !confirm('이 제품을 협업종료 처리할까요?')) return;
+  if (newStatus === '협업종료' && !(await showConfirm('이 제품을 협업종료 처리할까요?'))) return;
   let res;
   try {
     res = await fetch('/api/products/' + encodeURIComponent(p.id), {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...p, status: newStatus }),
     });
-  } catch (e) { alert('실패(네트워크): ' + e.message); return; }
-  if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || '실패'); return; }
+  } catch (e) { showAlert('실패(네트워크): ' + e.message); return; }
+  if (!res.ok) { const d = await res.json().catch(() => ({})); showAlert(d.error || '실패'); return; }
   p.status = newStatus;
   renderProducts();
   showToast(newStatus === '협업종료' ? '협업종료 처리됨' : '진행으로 복귀됨');
@@ -80,6 +80,8 @@ function onShowEndedProductsChange() {
 
 // ── 제조사 목록 (제품 관리 2depth) ──
 function renderManufacturers() {
+  // [요청] 제조사-제품 통합 탭 — 해당 페이지가 로드돼 있으면 함께 갱신(그 페이지에선 아래 early-return). 역호출 금지.
+  if (typeof renderManufacturerProductsPage === 'function') renderManufacturerProductsPage();
   const box = document.getElementById('manufacturersList');
   if (!box) return;
   const q = (document.getElementById('manufacturerSearch')?.value || '').trim().toLowerCase();
@@ -191,13 +193,13 @@ async function saveManufacturerInline(id) {
     schedule: document.getElementById('mfrInlineSchedule').value.trim(),
     memo: document.getElementById('mfrInlineMemo').value.trim(),
   };
-  if (!payload.name) { alert('제조사명은 필수입니다.'); return; }
+  if (!payload.name) { showAlert('제조사명은 필수입니다.'); return; }
   let res;
   try {
     res = await fetch('/api/manufacturers/' + Number(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-  } catch (e) { alert('저장 실패(네트워크): ' + e.message); return; }
+  } catch (e) { showAlert('저장 실패(네트워크): ' + e.message); return; }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) { alert(data.error || '저장 실패'); return; }
+  if (!res.ok) { showAlert(data.error || '저장 실패'); return; }
   editingInlineManufacturerId = null;
   expandedManufacturerId = Number(id); // 펼침 유지
   await loadManufacturers();
@@ -245,16 +247,16 @@ async function saveManufacturer() {
     schedule: document.getElementById('mfrSchedule').value.trim(),
     memo: document.getElementById('mfrMemo').value.trim(),
   };
-  if (!payload.name) { alert('제조사명은 필수입니다.'); return; }
+  if (!payload.name) { showAlert('제조사명은 필수입니다.'); return; }
   const isEdit = editingManufacturerId != null;
   const url = isEdit ? '/api/manufacturers/' + editingManufacturerId : '/api/manufacturers';
   const method = isEdit ? 'PUT' : 'POST';
   let res;
   try {
     res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-  } catch (e) { alert('저장 실패(네트워크): ' + e.message); return; }
+  } catch (e) { showAlert('저장 실패(네트워크): ' + e.message); return; }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) { alert(data.error || '저장 실패'); return; }
+  if (!res.ok) { showAlert(data.error || '저장 실패'); return; }
   closeManufacturerForm();
   await loadManufacturers();
   renderManufacturers();
@@ -263,14 +265,14 @@ async function saveManufacturer() {
 async function endManufacturer(id) {
   const m = manufacturers.find(x => x.id === Number(id));
   const n = m ? m.productCount : 0;
-  if (!confirm(`'${m ? m.name : ''}'을(를) 협업종료 처리합니다.\n\n연결된 제품 ${n}개도 함께 협업종료됩니다.\n계속하시겠습니까?`)) return;
+  if (!(await showConfirm(`'${m ? m.name : ''}'을(를) 협업종료 처리합니다.\n\n연결된 제품 ${n}개도 함께 협업종료됩니다.\n계속하시겠습니까?`))) return;
   let res;
   try {
     res = await fetch('/api/manufacturers/' + id + '/status', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: '협업종료' }),
     });
-  } catch (e) { alert('실패(네트워크): ' + e.message); return; }
-  if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || '실패'); return; }
+  } catch (e) { showAlert('실패(네트워크): ' + e.message); return; }
+  if (!res.ok) { const d = await res.json().catch(() => ({})); showAlert(d.error || '실패'); return; }
   await loadManufacturers();
   renderManufacturers();
   await loadProducts(); // 캐스케이드로 제품 status가 바뀌었으니 제품 목록 재로드
@@ -282,8 +284,8 @@ async function reopenManufacturer(id) {
     res = await fetch('/api/manufacturers/' + id + '/status', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: '' }),
     });
-  } catch (e) { alert('실패(네트워크): ' + e.message); return; }
-  if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || '실패'); return; }
+  } catch (e) { showAlert('실패(네트워크): ' + e.message); return; }
+  if (!res.ok) { const d = await res.json().catch(() => ({})); showAlert(d.error || '실패'); return; }
   await loadManufacturers();
   renderManufacturers();
   showToast('진행으로 복귀됨 (제품은 개별 복귀하세요)');
@@ -308,8 +310,8 @@ async function confirmDeleteManufacturer() {
   let res;
   try {
     res = await fetch('/api/manufacturers/' + deletingManufacturerId, { method: 'DELETE' });
-  } catch (e) { alert('삭제 실패(네트워크): ' + e.message); return; }
-  if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || '삭제 실패'); return; }
+  } catch (e) { showAlert('삭제 실패(네트워크): ' + e.message); return; }
+  if (!res.ok) { const d = await res.json().catch(() => ({})); showAlert(d.error || '삭제 실패'); return; }
   closeManufacturerDeleteModal();
   await loadManufacturers();
   renderManufacturers();

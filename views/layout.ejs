@@ -30,6 +30,8 @@
 <% (modals || []).forEach(function (m) { %>
   <%- include('partials/modals/' + m) %>
 <% }); %>
+  <%# [요청] alert/confirm 전면 모달 전환 — 공용 다이얼로그는 전 페이지 상시 포함 (페이지 모달들 뒤 = DOM 마지막 → ESC가 이것부터 닫음) -%>
+  <%- include('partials/modals/dialog') %>
 
   <%#
     [요청] C단계 — classic script 순차 로드 (type="module" 금지: 인라인 onclick 이 전역 함수를 참조).

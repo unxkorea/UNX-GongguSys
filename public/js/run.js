@@ -100,11 +100,11 @@ async function adjustNextAccount(delta) {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      alert(`카운트 변경 실패: ${err.error || res.status}`);
+      showAlert(`카운트 변경 실패: ${err.error || res.status}`);
       return;
     }
   } catch (e) {
-    alert(`카운트 변경 실패: ${e.message}`);
+    showAlert(`카운트 변경 실패: ${e.message}`);
     return;
   }
   await loadRunStats();
@@ -116,17 +116,17 @@ async function startMacro(dryRun) {
   // [요청] 메일만 발송 옵션
   const mailOnly = document.getElementById('runMailOnly').checked;
   if (mailOnly && !hasEmailTarget) {
-    alert('메일만 발송 옵션이 켜져있는데 이메일 타겟이 하나도 없습니다.');
+    showAlert('메일만 발송 옵션이 켜져있는데 이메일 타겟이 하나도 없습니다.');
     return;
   }
   if (hasEmailTarget && !emailAccountId) {
-    alert('이메일 주소가 포함되어 있습니다. 상단 "메일 발송 계정"을 먼저 선택해주세요.');
+    showAlert('이메일 주소가 포함되어 있습니다. 상단 "메일 발송 계정"을 먼저 선택해주세요.');
     return;
   }
   const confirmMsg = dryRun
     ? '테스트 실행(DRY-RUN)을 시작하시겠습니까?'
     : (mailOnly ? '메일만 발송을 시작하시겠습니까? (인포크 스킵)' : '제안서 발송을 시작하시겠습니까?');
-  if (!confirm(confirmMsg)) return;
+  if (!(await showConfirm(confirmMsg))) return;
 
   // 먼저 인플루언서 저장
   await fetch('/api/influencers', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(influencers) });
@@ -137,7 +137,7 @@ async function startMacro(dryRun) {
     body: JSON.stringify({ dryRun, emailAccountId: emailAccountId || undefined, mailOnly })
   });
   const data = await res.json();
-  if (!res.ok) { alert(data.error); return; }
+  if (!res.ok) { showAlert(data.error); return; }
 
   document.getElementById('btnStart').style.display = 'none';
   document.getElementById('btnDryRun').style.display = 'none';
@@ -149,7 +149,7 @@ async function startMacro(dryRun) {
 }
 
 async function stopMacro() {
-  if (!confirm('매크로를 중지하시겠습니까?')) return;
+  if (!(await showConfirm('매크로를 중지하시겠습니까?'))) return;
   await fetch('/api/macro/stop', { method: 'POST' });
 }
 
@@ -222,7 +222,7 @@ async function loadFailed() {
 }
 
 async function clearFailed() {
-  if (!confirm('실패 목록을 삭제하시겠습니까?')) return;
+  if (!(await showConfirm('실패 목록을 삭제하시겠습니까?'))) return;
   await fetch('/api/failed', { method: 'DELETE' });
   loadFailed();
 }
@@ -255,25 +255,25 @@ async function resolveSending(id, action) {
   const confirmMsg = action === 'sent'
     ? '정말 보낸 건으로 처리하시겠습니까? 감사 로그에 추가되고 대기열에서 제거됩니다.'
     : 'pending 상태로 되돌리시겠습니까? 다음 실행 시 다시 발송됩니다.';
-  if (!confirm(confirmMsg)) return;
+  if (!(await showConfirm(confirmMsg))) return;
   const res = await fetch(`/api/influencers/${id}/resolve`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action }),
   });
   const data = await res.json();
-  if (!res.ok) { alert(`실패: ${data.error || '알 수 없는 오류'}`); return; }
+  if (!res.ok) { showAlert(`실패: ${data.error || '알 수 없는 오류'}`); return; }
   loadSending();
   loadInfluencers();
   loadRunStats();
 }
 
 async function retryFailed() {
-  if (!confirm('실패한 인플루언서를 인플루언서 목록에 추가하시겠습니까?')) return;
+  if (!(await showConfirm('실패한 인플루언서를 인플루언서 목록에 추가하시겠습니까?'))) return;
   const res = await fetch('/api/failed/retry', { method: 'POST' });
   const data = await res.json();
   if (res.ok) {
-    alert(`${data.added}명이 인플루언서 목록에 추가되었습니다. 다시 발송해주세요.`);
+    showAlert(`${data.added}명이 인플루언서 목록에 추가되었습니다. 다시 발송해주세요.`);
     loadInfluencers();
     loadFailed();
   }

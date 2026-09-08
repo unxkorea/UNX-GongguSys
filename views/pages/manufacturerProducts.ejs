@@ -1,0 +1,19 @@
+<!-- ═══ 제조사-제품 (제품 관리 3depth) ═══ -->
+<!-- [요청] 제조사-제품 통합 탭 — 2단 마스터-디테일 (조회+CRUD) -->
+<div class="panel active" id="panel-mfr-products">
+  <div class="card">
+    <div class="actions-bar">
+      <div class="card-title">제조사-제품 <span class="count" id="mpCount">0</span></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="search" id="mpSearch" placeholder="검색 (제조사명 · 관리명·브랜드·제품명·카테고리·캠페인)" oninput="onMpSearchChange()" style="width:340px;padding:6px 12px;font-size:13px">
+        <label style="font-size:12px;color:#6b7280;display:flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="mpShowEnded" onchange="onMpShowEndedChange()"> 협업종료 포함</label>
+        <!-- [요청] 제조사 추가를 팝업 모달로 -->
+        <button class="btn btn-primary btn-sm" onclick="openManufacturerModal()">+ 제조사 추가</button>
+      </div>
+    </div>
+    <div class="mp-layout">
+      <div id="mpLeft"></div>
+      <div id="mpRight"></div>
+    </div>
+  </div>
+</div>

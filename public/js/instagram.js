@@ -17,7 +17,7 @@ function fmtInstaNum(n) {
 
 async function startInstaAnalyze(mode) {
   const url = document.getElementById('instagramProfileUrl').value.trim();
-  if (!url) { alert('인스타 프로필 URL을 입력해주세요.'); return; }
+  if (!url) { showAlert('인스타 프로필 URL을 입력해주세요.'); return; }
   // 모드별 버튼 잠금
   document.getElementById('btnInstaQuick').disabled = true;
   document.getElementById('btnInstaFull').disabled = true;
@@ -39,7 +39,7 @@ async function startInstaAnalyze(mode) {
     }
     startInstaPolling();
   } catch (e) {
-    alert('오류: ' + e.message);
+    showAlert('오류: ' + e.message);
     finishInstaUI();
   }
 }

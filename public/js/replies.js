@@ -23,7 +23,7 @@ async function startCheckReplies() {
     body: JSON.stringify({ startFrom: startFrom || undefined }),
   });
   const data = await res.json();
-  if (!res.ok) return alert(data.error || '시작 실패');
+  if (!res.ok) return showAlert(data.error || '시작 실패');
   document.getElementById('btnCheckReplies').style.display = 'none';
   document.getElementById('btnStopReplies').style.display = 'inline-block';
   document.getElementById('btnForceStopReplies').style.display = 'inline-block';
@@ -44,7 +44,7 @@ async function stopCheckReplies() {
 }
 
 async function forceStopCheckReplies() {
-  if (!confirm('강제 종료하시겠습니까? 진행 중인 작업이 즉시 중단됩니다.')) return;
+  if (!(await showConfirm('강제 종료하시겠습니까? 진행 중인 작업이 즉시 중단됩니다.'))) return;
   await fetch('/api/replies/stop', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

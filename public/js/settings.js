@@ -45,7 +45,7 @@ async function saveInstagramCreds() {
     password: password ? password : (curInsta.password || ''),
   };
   if (!next.username || !next.password) {
-    alert('ID와 비밀번호를 모두 입력해주세요.');
+    showAlert('ID와 비밀번호를 모두 입력해주세요.');
     return;
   }
   await fetch('/api/settings', {
@@ -54,20 +54,20 @@ async function saveInstagramCreds() {
   });
   passwordInput.value = '';
   passwordInput.placeholder = '저장된 비밀번호 (변경 시에만 입력)';
-  alert('인스타분석 계정이 저장되었습니다.');
+  showAlert('인스타분석 계정이 저장되었습니다.');
 }
 
 async function saveSettings() {
   const mailBcc = document.getElementById('settingsMailBcc').value.trim();
   await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mailBcc }) });
-  alert('설정이 저장되었습니다.');
+  showAlert('설정이 저장되었습니다.');
 }
 
 // [요청] 추천 카탈로그 공개 URL 저장
 async function saveCatalogBaseUrl() {
   let url = document.getElementById('settingsCatalogBaseUrl').value.trim();
   if (url && !/^https?:\/\//.test(url)) {
-    alert('URL은 http:// 또는 https:// 로 시작해야 합니다.');
+    showAlert('URL은 http:// 또는 https:// 로 시작해야 합니다.');
     return;
   }
   if (url && !url.endsWith('/')) url += '/';
@@ -79,7 +79,7 @@ async function saveCatalogBaseUrl() {
   window.CATALOG_PUBLIC_BASE_URL = url || null;
   // [요청] C단계 — catalogs.js 는 추천 페이지에서만 로드되므로 존재할 때만 호출
   if (typeof renderCatalogs === 'function') renderCatalogs(); // 목록에 표시된 URL도 갱신
-  alert('추천 카탈로그 공개 URL이 저장되었습니다.');
+  showAlert('추천 카탈로그 공개 URL이 저장되었습니다.');
 }
 
 // [요청] 외부 배포 — 관리자 비밀번호 변경
@@ -87,11 +87,11 @@ async function saveAdminPassword() {
   const input = document.getElementById('settingsAdminPassword');
   const adminPassword = input.value;
   if (adminPassword === '') {
-    if (!confirm('비밀번호를 빈값으로 저장하면 외부 접속 인증이 꺼집니다. 계속하시겠습니까?')) return;
+    if (!(await showConfirm('비밀번호를 빈값으로 저장하면 외부 접속 인증이 꺼집니다. 계속하시겠습니까?'))) return;
   }
   await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ adminPassword }) });
   input.value = '';
-  alert('비밀번호가 저장되었습니다.');
+  showAlert('비밀번호가 저장되었습니다.');
   updateLogoutButton();
 }
 
@@ -99,7 +99,7 @@ async function saveAdminPassword() {
 async function saveHeadless() {
   const headless = document.getElementById('settingsHeadless').checked;
   await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ headless }) });
-  alert(`Headless 모드: ${headless ? 'ON' : 'OFF'}. 다음 매크로 실행부터 적용됩니다.`);
+  showAlert(`Headless 모드: ${headless ? 'ON' : 'OFF'}. 다음 매크로 실행부터 적용됩니다.`);
 }
 
 // [요청] 외부 배포 — 로그아웃

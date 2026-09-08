@@ -76,6 +76,9 @@ async function refreshLeadsBadge() {
 const MODAL_CLOSERS = {};
 function registerModalClosers(map) { Object.assign(MODAL_CLOSERS, map); }
 
+// [요청] alert/confirm 전면 모달 전환 — 공용 다이얼로그는 전 페이지 공통이라 여기서 등록 (ESC = confirm 취소)
+registerModalClosers({ appDialogModal: () => closeAppDialog(false) });
+
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   const open = Array.from(document.querySelectorAll('.modal-backdrop'))

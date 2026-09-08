@@ -33,8 +33,9 @@ function removeInfluencer(i) {
   renderInfluencers();
 }
 
-function clearInfluencers() {
-  if (!confirm('인플루언서 목록을 전부 삭제하시겠습니까?')) return;
+// [요청] alert/confirm 전면 모달 전환 — 공용 showConfirm 사용(async 전환, onclick 전용이라 안전)
+async function clearInfluencers() {
+  if (!(await showConfirm('인플루언서 목록을 전부 삭제하시겠습니까?'))) return;
   influencers = [];
   renderInfluencers();
   saveInfluencers();
@@ -42,7 +43,7 @@ function clearInfluencers() {
 
 async function saveInfluencers() {
   await fetch('/api/influencers', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(influencers) });
-  alert('인플루언서 목록이 저장되었습니다.');
+  showAlert('인플루언서 목록이 저장되었습니다.');
 }
 
 // 붙여넣기 처리 (구글 시트에서 탭 구분 데이터)

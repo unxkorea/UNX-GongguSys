@@ -55,6 +55,9 @@ function productMatchesSearch(p) {
 }
 
 function renderProducts() {
+  // [요청] 제조사-제품 통합 탭 — 해당 페이지가 로드돼 있으면 함께 갱신(그 페이지에선 아래 early-return).
+  //   기존 핸들러들이 renderProducts()만 호출해도 새 탭 뷰가 따라오게 하는 훅. 역호출 금지(무한루프 방지).
+  if (typeof renderManufacturerProductsPage === 'function') renderManufacturerProductsPage();
   const container = document.getElementById('productsList');
   if (!container) return;   // [요청] C단계 — 제품 목록 페이지가 아니면 렌더 대상 없음(리드/추천 등은 products 배열만 씀)
   // [요청] 제조사 관리 — 협업종료 제품은 기본 숨김(토글 시 노출). 표시 대상 전체 카운트의 분모로 사용.
@@ -69,7 +72,11 @@ function renderProducts() {
     container.innerHTML = `<div style="text-align:center;color:#9ca3af;padding:32px;font-size:14px">검색 결과 없음</div>`;
     return;
   }
-  container.innerHTML = matchedIndices.map(i => {
+  container.innerHTML = matchedIndices.map(i => productCardHtml(i)).join('');
+}
+
+// [요청] 제조사-제품 통합 탭 — 제품 카드 1장의 HTML을 함수로 추출(새 탭이 재사용). 카드 내용 무변경.
+function productCardHtml(i) {
     const p = products[i];
     const isOpen = openProductIdx === i;
     // [요청] 빠른추가/이미지 없음 판정 — USP 비어있음 = 빠른추가, photos 비어있음 = 이미지 없음
@@ -254,7 +261,6 @@ function renderProducts() {
         </div>
       </div>
     </div>`;
-  }).join('');
 }
 
 function toggleProduct(i) {
@@ -291,14 +297,14 @@ function filterQuickMfrSelect(query) {
 async function applyQuickProductModal() {
   const productName = document.getElementById('quickProductName').value.trim();
   const mfrVal = document.getElementById('quickMfrSelect').value;
-  if (!mfrVal) { alert('제조사를 선택해주세요.'); return; }
-  if (!productName) { alert('제품명을 입력해주세요.'); return; }
+  if (!mfrVal) { showAlert('제조사를 선택해주세요.'); return; }
+  if (!productName) { showAlert('제품명을 입력해주세요.'); return; }
   const manufacturerId = Number(mfrVal);
   const m = manufacturers.find(x => x.id === manufacturerId);
   const brandName = m ? m.name : '';
   // 사전 중복 검사 — 메모리 products 배열의 관리명과 매칭
   if (products.some(p => p.name === productName)) {
-    alert('이미 같은 관리명의 제품이 존재합니다.');
+    showAlert('이미 같은 관리명의 제품이 존재합니다.');
     return;
   }
   const res = await fetch('/api/products/quick', {
@@ -308,7 +314,7 @@ async function applyQuickProductModal() {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    alert(data.error || `추가 실패: ${res.status}`);
+    showAlert(data.error || `추가 실패: ${res.status}`);
     return;
   }
   // DB가 진실의 원천 — 전체 재로드 후 새 제품 카드 펼침
@@ -397,7 +403,7 @@ function applyHookingModal() {
   if (currentHookingTarget < 0 || !products[currentHookingTarget]) return;
   const raw = document.getElementById('hookingModalTextarea').value;
   const lines = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-  if (!lines.length) { alert('입력된 후킹문구가 없습니다.'); return; }
+  if (!lines.length) { showAlert('입력된 후킹문구가 없습니다.'); return; }
   const modeEl = document.querySelector('input[name="hookingMode"]:checked');
   const mode = modeEl ? modeEl.value : 'append';
   const target = products[currentHookingTarget];
@@ -413,27 +419,30 @@ function applyHookingModal() {
 
 // [요청] 카드 단위 저장 — 삭제 버튼은 confirm 통과 시 즉시 DB 삭제(저장 후순서 일관성).
 async function removeProduct(i) {
-  if (!confirm('이 제품을 삭제하시겠습니까?')) return;
+  if (!(await showConfirm('이 제품을 삭제하시겠습니까?'))) return;
   const p = products[i];
   if (p && p.id != null) {
     let res;
     try {
       res = await fetch(`/api/products/${encodeURIComponent(p.id)}`, { method: 'DELETE' });
     } catch (e) {
-      alert('삭제 실패(네트워크): ' + e.message);
+      showAlert('삭제 실패(네트워크): ' + e.message);
       return;
     }
     if (!res.ok) {
       let msg = String(res.status);
       try { const err = await res.json(); if (err && err.error) msg = err.error; } catch {}
-      alert('삭제 실패: ' + msg);
+      showAlert('삭제 실패: ' + msg);
       return;
     }
   }
   if (p) dirtyProducts.delete(p);
+  const wasSaved = p && p.id != null; // [요청] 제조사 경고 카운트 수정 — DB에서 지운 경우에만 재로드
   products.splice(i, 1);
   if (openProductIdx === i) openProductIdx = -1;
   else if (openProductIdx > i) openProductIdx--;
+  // [요청] 저장 느림 개선 — 재로드는 백그라운드로 (saveOneProduct와 동일)
+  if (wasSaved && typeof loadManufacturers === 'function') loadManufacturers().then(renderManufacturers);
   renderProducts();
 }
 
@@ -476,7 +485,7 @@ async function saveOneProduct(i) {
   ];
   for (const [key, label] of required) {
     if (!String(p[key] || '').trim()) {
-      alert(`'${label}' 항목이 비어있습니다.`);
+      showAlert(`'${label}' 항목이 비어있습니다.`);
       openProductIdx = i;
       renderProducts();
       return;
@@ -484,7 +493,7 @@ async function saveOneProduct(i) {
   }
   // [요청] 제조사 관리 — 제품 저장 시 제조사 필수
   if (p.manufacturerId == null || p.manufacturerId === '') {
-    alert('제조사를 선택해주세요. (제조사 추가 → 제품 추가 순서)');
+    showAlert('제조사를 선택해주세요. (제조사 추가 → 제품 추가 순서)');
     openProductIdx = i;
     renderProducts();
     return;
@@ -500,13 +509,13 @@ async function saveOneProduct(i) {
       body: JSON.stringify(p),
     });
   } catch (e) {
-    alert('저장 실패(네트워크): ' + e.message);
+    showAlert('저장 실패(네트워크): ' + e.message);
     return;
   }
   if (!res.ok) {
     let msg = String(res.status);
     try { const err = await res.json(); if (err && err.error) msg = err.error; } catch {}
-    alert('저장 실패: ' + msg);
+    showAlert('저장 실패: ' + msg);
     return;
   }
   // 응답에서 id 갱신 — JSON 모드에선 id=name이라 리네임 후 후속 저장이 깨지지 않도록.
@@ -514,7 +523,11 @@ async function saveOneProduct(i) {
     const data = await res.json();
     if (data && data.product && data.product.id != null) p.id = data.product.id;
   } catch {}
+  // [요청] 제조사 삭제/협업종료 경고 카운트 수정 — 저장으로 연결 제품 수가 바뀔 수 있어 제조사 목록 재로드
+  //   (모달/confirm이 쓰는 m.productCount가 낡은 값이 되지 않도록. renderManufacturers의 훅으로 제조사-제품 탭도 갱신)
+  // [요청] 저장 느림 개선 — 이 재로드는 전체 제품 조회를 동반해 무거우므로 await 없이 백그라운드로 (완료 알림을 막지 않음)
+  if (typeof loadManufacturers === 'function') loadManufacturers().then(renderManufacturers);
   clearProductDirty(p);
   renderProducts(); // 뱃지(빠른추가/이미지없음)·needs-attention 갱신
-  alert('저장되었습니다.');
+  showAlert('저장되었습니다.');
 }

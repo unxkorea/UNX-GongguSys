@@ -116,5 +116,36 @@ function copyTextFallback(text) {
   try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
   document.body.removeChild(ta);
   if (ok) showToast('복사완료!');
-  else alert('복사 실패: ' + text);
+  else showAlert('복사 실패: ' + text);
 }
+
+// ═══════════════════════════════════════
+//  [요청] alert/confirm 전면 모달 전환 — 공용 다이얼로그
+// ═══════════════════════════════════════
+// 마크업: views/partials/modals/dialog.ejs (#appDialogModal, layout이 전 페이지에 포함).
+// ESC 닫기: nav.js가 MODAL_CLOSERS에 공통 등록(= closeAppDialog(false)).
+// 사용법: await 없이 showAlert('...')  /  if (!(await showConfirm('...'))) return;
+let _appDialogResolve = null;
+function _openAppDialog(message, isConfirm) {
+  // 이전 다이얼로그가 열린 채 다시 호출되면 이전 Promise는 취소(false)로 정리
+  if (_appDialogResolve) closeAppDialog(false);
+  return new Promise(resolve => {
+    _appDialogResolve = resolve;
+    document.getElementById('appDialogMessage').textContent = String(message == null ? '' : message);
+    document.getElementById('appDialogCancel').style.display = isConfirm ? '' : 'none';
+    document.getElementById('appDialogModal').style.display = 'flex';
+    // [확인]에 포커스 — Enter로 바로 닫기(기존 브라우저 alert의 편의 유지)
+    setTimeout(() => document.getElementById('appDialogOk')?.focus(), 0);
+  });
+}
+function closeAppDialog(result) {
+  const modal = document.getElementById('appDialogModal');
+  if (modal) modal.style.display = 'none';
+  const resolve = _appDialogResolve;
+  _appDialogResolve = null;
+  if (resolve) resolve(!!result);
+}
+// alert 대체 — 통보용. 닫힘을 기다릴 필요 없으면 await 생략 가능.
+function showAlert(message) { return _openAppDialog(message, false); }
+// confirm 대체 — 반드시 await로 결과(boolean)를 받아야 함.
+function showConfirm(message) { return _openAppDialog(message, true); }

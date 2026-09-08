@@ -108,6 +108,11 @@ const UI_PAGES = [
     title: '제조사 목록', active: 'products', activeSub: 'manufacturers', page: 'manufacturers',
     scripts: ['products.js', 'manufacturers.js'], modals: ['manufacturerDelete'],
   }],
+  // [요청] 제조사-제품 통합 탭 — 2단 마스터-디테일 (조회+CRUD)
+  ['/manufacturer-products', {
+    title: '제조사-제품', active: 'products', activeSub: 'mfrProducts', page: 'manufacturerProducts',
+    scripts: ['manufacturers.js', 'products.js', 'manufacturerProducts.js'], modals: ['hooking', 'manufacturerDelete', 'manufacturer'],
+  }],
   ['/influencers', {
     title: '인플루언서', active: 'inpock', activeSub: 'influencers', page: 'influencers',
     scripts: ['influencers.js'], modals: [],

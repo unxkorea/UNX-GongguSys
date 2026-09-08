@@ -1,0 +1,11 @@
+<!-- [요청] alert/confirm 전면 모달 전환 — 전 페이지 공용 다이얼로그 (util.js의 showAlert/showConfirm가 사용) -->
+<!-- z-index 1200: 기존 모달(1000) 위에 겹침. layout이 DOM 마지막에 포함해 ESC(nav.js)가 이것부터 닫는다. 배경 클릭으로는 안 닫힘. -->
+<div id="appDialogModal" class="modal-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1200;align-items:center;justify-content:center">
+  <div style="background:white;border-radius:12px;padding:24px;max-width:420px;width:90%;display:flex;flex-direction:column;gap:18px;box-shadow:0 10px 40px rgba(0,0,0,0.2)">
+    <div id="appDialogMessage" style="font-size:14px;line-height:1.6;white-space:pre-line;word-break:break-word"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button id="appDialogCancel" class="btn btn-outline btn-sm" onclick="closeAppDialog(false)">취소</button>
+      <button id="appDialogOk" class="btn btn-primary btn-sm" onclick="closeAppDialog(true)">확인</button>
+    </div>
+  </div>
+</div>
