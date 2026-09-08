@@ -102,7 +102,8 @@ app.use('/assets', express.static(path.join(__dirname, 'assets')));
 const UI_PAGES = [
   ['/products', {
     title: '제품 목록', active: 'products', activeSub: 'products', page: 'products',
-    scripts: ['manufacturers.js', 'products.js'], modals: ['hooking', 'quickProduct'],
+    // [요청] 카페24 제품 연동 — cafe24 불러오기 모달
+    scripts: ['manufacturers.js', 'products.js'], modals: ['hooking', 'quickProduct', 'cafe24'],
   }],
   ['/manufacturers', {
     title: '제조사 목록', active: 'products', activeSub: 'manufacturers', page: 'manufacturers',
@@ -461,6 +462,125 @@ app.post('/api/products/upload', upload.array('photos', 10), async (req, res) =>
     }
     res.json({ files });
   } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── 카페24 연동 API ───
+// [요청] 카페24(언엑스샵) 제품 연동 — OAuth 인증 + 제품 목록 미리보기 + 선택 가져오기
+const cafe24 = require('./src/cafe24');
+
+// Railway 등 프록시 뒤에서도 등록된 Redirect URI(https://도메인/api/cafe24/callback)와 일치하도록 조립
+function cafe24RedirectUri(req) {
+  const fwd = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+  const proto = fwd || req.protocol;
+  return `${proto}://${req.get('host')}/api/cafe24/callback`;
+}
+
+app.get('/api/cafe24/status', async (req, res) => {
+  try {
+    const supported = cafe24.isSupported();
+    const configured = cafe24.isConfigured();
+    const connected = supported && configured ? await cafe24.isConnected() : false;
+    res.json({ supported, configured, connected, mallId: cafe24.MALL_ID });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/cafe24/auth', (req, res) => {
+  if (!cafe24.isSupported()) return res.status(400).send('JSON 롤백 모드에서는 카페24 연동을 지원하지 않습니다.');
+  if (!cafe24.isConfigured()) return res.status(400).send('CAFE24_MALL_ID / CAFE24_CLIENT_ID / CAFE24_CLIENT_SECRET 환경변수가 필요합니다.');
+  const state = crypto.randomBytes(16).toString('hex');
+  req.session.cafe24State = state;
+  res.redirect(cafe24.getAuthUrl(cafe24RedirectUri(req), state));
+});
+
+app.get('/api/cafe24/callback', async (req, res) => {
+  try {
+    const { code, state, error, error_description } = req.query;
+    if (error) throw new Error(error_description || error);
+    if (!code) throw new Error('인증 코드가 없습니다.');
+    if (!state || state !== req.session.cafe24State) throw new Error('state 불일치 (다시 시도해주세요).');
+    delete req.session.cafe24State;
+    // 인증코드 유효시간 1분 — 즉시 교환
+    await cafe24.exchangeCode(code, cafe24RedirectUri(req));
+    res.redirect('/products?cafe24=connected');
+  } catch (e) {
+    res.redirect(`/products?cafe24=error&msg=${encodeURIComponent(e.message)}`);
+  }
+});
+
+app.get('/api/cafe24/products', async (req, res) => {
+  try {
+    if (!cafe24.isSupported()) return res.status(400).json({ error: 'JSON 롤백 모드에서는 카페24 연동을 지원하지 않습니다.' });
+    const [cafe24Products, existing] = await Promise.all([
+      cafe24.fetchProducts(),
+      productsRepo.list(),
+    ]);
+    const importedByNo = new Map(
+      existing.filter(p => p.cafe24ProductNo != null).map(p => [Number(p.cafe24ProductNo), p.name])
+    );
+    res.json(cafe24Products.map(p => ({
+      ...p,
+      imported: importedByNo.has(Number(p.productNo)),
+      importedAs: importedByNo.get(Number(p.productNo)) || null,
+    })));
+  } catch (e) {
+    if (e.code === 'NOT_CONNECTED') return res.status(401).json({ error: 'NOT_CONNECTED' });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 선택한 카페24 제품 가져오기 — 기존(cafe24_product_no 매칭) 갱신 / 신규 insert
+app.post('/api/cafe24/import', async (req, res) => {
+  try {
+    if (!cafe24.isSupported()) return res.status(400).json({ error: 'JSON 롤백 모드에서는 카페24 연동을 지원하지 않습니다.' });
+    const productNos = (req.body?.productNos || []).map(Number).filter(n => !isNaN(n));
+    if (!productNos.length) return res.status(400).json({ error: '가져올 제품을 선택해주세요.' });
+
+    const [cafe24Products, existing] = await Promise.all([
+      cafe24.fetchProducts(),
+      productsRepo.list(),
+    ]);
+    const byNo = new Map(cafe24Products.map(p => [Number(p.productNo), p]));
+    const existingByNo = new Map(
+      existing.filter(p => p.cafe24ProductNo != null).map(p => [Number(p.cafe24ProductNo), p])
+    );
+
+    let created = 0, updated = 0;
+    const failed = [];
+    for (const no of productNos) {
+      const src = byNo.get(no);
+      if (!src) { failed.push(`${no}: 카페24에서 찾을 수 없음`); continue; }
+      const photos = [src.image, ...src.additionalImages].filter(Boolean);
+      try {
+        const prev = existingByNo.get(no);
+        if (prev) {
+          // 기존 제품 — 제품명·사진만 카페24 최신값으로 갱신 (관리명/문구류는 수기 입력 보존)
+          await productsRepo.updateOne(prev.id, { ...prev, productName: src.name, photos });
+          updated++;
+        } else {
+          const base = {
+            brandName: '', productName: src.name, campaignType: '공동구매', category: '',
+            hookingPhrases: [], photos, cafe24ProductNo: no,
+          };
+          try {
+            await productsRepo.insertOne({ ...base, name: src.name });
+          } catch (err) {
+            if (err.code !== 'DUPLICATE_NAME') throw err;
+            // 관리명 unique 충돌 시 카페24 번호를 붙여 재시도
+            await productsRepo.insertOne({ ...base, name: `${src.name} (카페24 ${no})` });
+          }
+          created++;
+        }
+      } catch (err) {
+        failed.push(`${no}: ${err.message}`);
+      }
+    }
+    res.json({ ok: true, created, updated, failed });
+  } catch (e) {
+    if (e.code === 'NOT_CONNECTED') return res.status(401).json({ error: 'NOT_CONNECTED' });
     res.status(500).json({ error: e.message });
   }
 });

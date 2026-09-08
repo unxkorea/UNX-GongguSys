@@ -28,6 +28,15 @@
 [ 실행계획 ]
 
 [ 작업완료 ]
+## 카페24(언엑스샵) 제품 연동 — Admin API로 제품 불러오기 (26.09.08)
+카페24 쇼핑몰 '언엑스샵'(몰ID unx2026)의 제품을 Cafe24 Admin API로 불러와 제품 목록에 추가. OAuth 인증 1회 → 제품 탭 "🛒 카페24 불러오기" 버튼 → 체크박스 선택 → 가져오기. 재가져오기 시 `cafe24_product_no` 매칭으로 중복 생성 없이 제품명·사진만 갱신(관리명·제안문구 등 수기 입력 보존).
+- **신규 [src/cafe24.js](../src/cafe24.js)**: OAuth(인증 URL 생성/코드 교환/refresh 자동 갱신, 만료 60초 전 선제 갱신) + 제품 목록 조회(limit=100 페이지네이션, `embed=additionalimages`). Node 20 전역 fetch 사용(의존성 추가 없음). 토큰은 **Supabase `cafe24_tokens`에 저장** — Railway 파일시스템이 재배포 시 초기화되므로 파일 저장 불가. JSON 롤백 모드는 미지원(가드).
+- **[scripts/schema.sql](../scripts/schema.sql)** 13번 블록: `cafe24_tokens` 테이블 + `products.cafe24_product_no` 컬럼/인덱스. **⚠ Supabase SQL Editor에서 1회 실행 필요 — 실행 전에는 인증/가져오기가 실패.**
+- **[src/repo/productsRepo.js](../src/repo/productsRepo.js)**: `cafe24ProductNo` 필드 양방향 매핑(list select/toRow/replaceAll).
+- **[server.js](../server.js)**: `GET /api/cafe24/status·auth·callback·products` + `POST /api/cafe24/import`. Redirect URI는 요청 호스트에서 조립(`x-forwarded-proto` 처리)이라 Railway 도메인과 자동 일치. state 세션 검증. import는 기존(매칭) 갱신 / 신규 insert, 관리명 unique 충돌 시 ` (카페24 N)` 접미사 재시도. 환경변수 `CAFE24_MALL_ID`/`CAFE24_CLIENT_ID`/`CAFE24_CLIENT_SECRET`(Railway Variables + 로컬 .env).
+- **UI**: [views/pages/products.ejs](../views/pages/products.ejs) 버튼 + 신규 [views/partials/modals/cafe24.ejs](../views/partials/modals/cafe24.ejs)(썸네일·가격·판매상태·'가져옴' 뱃지, 전체선택) + [public/js/products.js](../public/js/products.js) 모달 로직·카드 '카페24' 뱃지 + [public/js/init/products.js](../public/js/init/products.js) ESC 등록·OAuth 복귀(`?cafe24=connected` 토스트 후 모달 자동 오픈). CSS `.badge-cafe24`.
+- **주의**: Redirect URI가 Railway 도메인으로 등록돼 있어 **최초 인증은 Railway 사이트에서** 해야 함. 토큰이 공유 DB에 저장되므로 인증 후엔 로컬 서버에서도 동작.
+- 검증: 변경 JS 5개 `node --check` 통과, 로컬 서버 렌더로 버튼·모달 확인, `/api/cafe24/status`가 env 인식(`configured:true, mallId:unx2026`)·미인증(`connected:false`) 정확 반환 확인. OAuth 왕복·실가져오기는 Railway 배포 후 확인 요망.
 ## 제품 저장 느림 개선 — 제조사 카운트 재로드를 백그라운드로 (26.09.04)
 증상: 제조사-제품 탭에서 제품 저장 시 완료 알림까지 오래 걸림. 원인: '연결된 제품 N개' 카운트 수정 때 넣은 `await loadManufacturers()`가 저장 요청 뒤에 순차로 붙었는데, 이 API는 서버에서 제조사별 제품 수 집계를 위해 전체 제품+사진까지 조회해 무거움(Supabase 왕복 추가).
 - **[public/js/products.js](../public/js/products.js)**: `saveOneProduct`/`removeProduct`의 재로드를 `await` 없이 `loadManufacturers().then(renderManufacturers)` 백그라운드 실행으로 변경 — "저장되었습니다"는 저장 직후 즉시 뜨고, 카운트는 직후 조용히 갱신(정확성 유지).

@@ -121,6 +121,8 @@ td input:focus { border-color: #6366f1; background: white; }
 .card-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 500; line-height: 1.5; white-space: nowrap; }
 .card-badge.badge-quick { background: #ede9fe; color: #6d28d9; border: 1px solid #c4b5fd; }
 .card-badge.badge-no-photo { background: #dbeafe; color: #1d4ed8; border: 1px solid #93c5fd; }
+/* [요청] 카페24 제품 연동 — 카페24 출처 제품 뱃지 */
+.card-badge.badge-cafe24 { background: #fef3c7; color: #b45309; border: 1px solid #fcd34d; }
 
 /* [요청] 카드 단위 저장 — 카드별 dirty 표시(`.product-card.dirty`) */
 .dirty-indicator { display: none; color: #f59e0b; font-size: 12px; font-weight: 600; margin-right: 8px; align-self: center; }

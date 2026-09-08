@@ -420,3 +420,24 @@ create table if not exists manufacturers (
 alter table products add column if not exists manufacturer_id int references manufacturers(id) on delete set null;
 alter table products add column if not exists status text not null default '';   -- '' = 진행, '협업종료'
 create index if not exists idx_products_manufacturer on products(manufacturer_id);
+
+------------------------------------------------------------
+-- 13. cafe24_tokens : 카페24 OAuth 토큰 저장
+--   [요청] 카페24(언엑스샵) 제품 연동 — Admin API로 제품 불러오기
+--   - Railway 파일시스템은 재배포 시 초기화되므로 토큰(계속 갱신됨)은 DB에 저장.
+--   - mall_id당 1 row. access token 만료 시 refresh token으로 자동 재발급(src/cafe24.js).
+--   - JSON 롤백 모드에서는 카페24 연동 미지원(토큰 저장처가 DB라서).
+--   ⚠️ 이미 배포된 운영 DB는 이 블록(13번)을 SQL Editor에서 1회 실행해야 함.
+------------------------------------------------------------
+create table if not exists cafe24_tokens (
+  mall_id                   text        primary key,
+  access_token              text        not null,
+  refresh_token             text        not null,
+  expires_at                timestamptz,
+  refresh_token_expires_at  timestamptz,
+  updated_at                timestamptz not null default now()
+);
+
+-- 카페24에서 가져온 제품 식별자 — 재가져오기 시 중복 생성 대신 갱신(매칭 키)
+alter table products add column if not exists cafe24_product_no int;
+create index if not exists idx_products_cafe24_no on products(cafe24_product_no);

@@ -19,4 +19,20 @@ productsList.addEventListener('change', dirtyFromEvent);
 registerModalClosers({
   hookingModal: closeHookingModal,
   quickProductModal: closeQuickProductModal,
+  // [요청] 카페24 제품 연동
+  cafe24Modal: closeCafe24Modal,
 });
+
+// [요청] 카페24 제품 연동 — OAuth 콜백 복귀 처리 (?cafe24=connected|error)
+(function handleCafe24Return() {
+  const params = new URLSearchParams(location.search);
+  const result = params.get('cafe24');
+  if (!result) return;
+  history.replaceState(null, '', location.pathname); // 새로고침 시 재알림 방지
+  if (result === 'connected') {
+    showToast('카페24 인증 완료!');
+    openCafe24Modal(); // 바로 제품 목록으로 이어가기
+  } else if (result === 'error') {
+    showAlert('카페24 인증 실패: ' + (params.get('msg') || '알 수 없는 오류'));
+  }
+})();

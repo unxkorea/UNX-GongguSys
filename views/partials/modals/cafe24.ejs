@@ -1,0 +1,22 @@
+<!-- [요청] 카페24(언엑스샵) 제품 연동 — 제품 목록 미리보기 + 선택 가져오기 모달 -->
+<!-- 모달 규약: 배경 클릭으로 안 닫힘, ESC/X로만 (init에서 registerModalClosers 등록) -->
+<div id="cafe24Modal" class="modal-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:white;border-radius:12px;padding:24px;max-width:720px;width:94%;max-height:85vh;display:flex;flex-direction:column;gap:12px;box-shadow:0 10px 40px rgba(0,0,0,0.2)">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h3 style="margin:0;font-size:18px">카페24 제품 불러오기 <span id="cafe24MallLabel" style="font-size:13px;color:#6b7280;font-weight:normal"></span></h3>
+      <button class="btn btn-sm" style="background:transparent;color:#6b7280;padding:4px 8px" onclick="closeCafe24Modal()">✕</button>
+    </div>
+    <div style="font-size:13px;color:#6b7280">
+      가져올 제품을 체크하세요. 이미 가져온 제품(<span style="color:#2563eb">가져옴</span>)을 다시 선택하면 제품명·사진을 카페24 최신값으로 갱신합니다 (관리명·제안문구 등 수기 입력은 유지).
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <label style="font-size:13px;display:flex;align-items:center;gap:4px"><input type="checkbox" id="cafe24CheckAll" onchange="toggleCafe24All(this.checked)"> 전체 선택</label>
+      <span id="cafe24SelCount" style="font-size:12px;color:#6b7280"></span>
+    </div>
+    <div id="cafe24List" style="overflow-y:auto;flex:1;border:1px solid #e5e7eb;border-radius:8px;min-height:120px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-outline btn-sm" onclick="closeCafe24Modal()">취소</button>
+      <button class="btn btn-primary btn-sm" id="cafe24ImportBtn" onclick="importCafe24Selected()">선택 가져오기</button>
+    </div>
+  </div>
+</div>

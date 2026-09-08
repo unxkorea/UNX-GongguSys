@@ -94,6 +94,8 @@ async function listSupabase() {
       'hurdle, schedule, memo, age_range, ' +
       // [요청] 제조사 관리 — 제조사 FK + 협업종료 status
       'manufacturer_id, status, ' +
+      // [요청] 카페24 제품 연동 — 카페24 출처 제품 식별자 (재가져오기 매칭 키)
+      'cafe24_product_no, ' +
       'product_photos(url, sort_order)'
     )
     // [요청] 빠른 제품 추가 — 신규 row가 위로 오도록 created_at DESC. 같은 batch(replaceAll)는 created_at 동일 → id ASC로 메모리 순서 보존.
@@ -122,6 +124,8 @@ async function listSupabase() {
     // [요청] 제조사 관리 — 제조사 FK + 협업종료 status
     manufacturerId: p.manufacturer_id ?? null,
     status: p.status || '',
+    // [요청] 카페24 제품 연동
+    cafe24ProductNo: p.cafe24_product_no ?? null,
     photos: (p.product_photos || [])
       .slice()
       .sort((a, b) => a.sort_order - b.sort_order)
@@ -158,6 +162,8 @@ async function replaceAllSupabase(products) {
     // [요청] 제조사 관리 — 제조사 FK + 협업종료 status
     manufacturer_id: p.manufacturerId ?? null,
     status: p.status || '',
+    // [요청] 카페24 제품 연동
+    cafe24_product_no: p.cafe24ProductNo ?? null,
   }));
   const { data: inserted, error } = await supabase
     .from('products').insert(productRows).select('id, name');
@@ -200,6 +206,8 @@ function toRow(product) {
     // [요청] 제조사 관리 — 제조사 FK + 협업종료 status
     manufacturer_id: product.manufacturerId ?? null,
     status: product.status || '',
+    // [요청] 카페24 제품 연동
+    cafe24_product_no: product.cafe24ProductNo ?? null,
   };
 }
 

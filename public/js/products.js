@@ -85,9 +85,11 @@ function productCardHtml(i) {
     const needsAttention = isQuick || noPhoto;
     const isDirty = dirtyProducts.has(p); // [요청] 카드 단위 저장
     const isEnded = p.status === '협업종료'; // [요청] 제조사 관리 — 협업종료 제품
+    const isCafe24 = p.cafe24ProductNo != null; // [요청] 카페24 제품 연동 — 출처 뱃지
     return `
     <div class="product-card ${needsAttention ? 'needs-attention' : ''} ${isOpen ? 'editing' : ''} ${isDirty ? 'dirty' : ''} ${isEnded ? 'ended' : ''}" id="product-${i}">
-      ${(isQuick || noPhoto) ? `<div class="card-badges">
+      ${(isQuick || noPhoto || isCafe24) ? `<div class="card-badges">
+        ${isCafe24 ? '<span class="card-badge badge-cafe24">카페24</span>' : ''}
         ${isQuick ? '<span class="card-badge badge-quick">빠른추가</span>' : ''}
         ${noPhoto ? '<span class="card-badge badge-no-photo">이미지 없음</span>' : ''}
       </div>` : ''}
@@ -530,4 +532,135 @@ async function saveOneProduct(i) {
   clearProductDirty(p);
   renderProducts(); // 뱃지(빠른추가/이미지없음)·needs-attention 갱신
   showAlert('저장되었습니다.');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// [요청] 카페24(언엑스샵) 제품 연동 — 불러오기 모달
+//   /products 페이지에만 모달이 있으므로 컨테이너 없으면 early-return (파일 공유 규약)
+// ═══════════════════════════════════════════════════════════════
+let cafe24Items = [];
+
+async function openCafe24Modal() {
+  const modal = document.getElementById('cafe24Modal');
+  if (!modal) return;
+  let st;
+  try {
+    st = await (await fetch('/api/cafe24/status')).json();
+  } catch (e) {
+    showAlert('카페24 상태 확인 실패: ' + e.message);
+    return;
+  }
+  if (!st.supported) { showAlert('JSON 롤백 모드에서는 카페24 연동을 지원하지 않습니다.'); return; }
+  if (!st.configured) { showAlert('카페24 환경변수가 설정되지 않았습니다.\n(CAFE24_MALL_ID / CAFE24_CLIENT_ID / CAFE24_CLIENT_SECRET)'); return; }
+  if (!st.connected) {
+    if (await showConfirm('카페24 인증이 필요합니다.\n카페24 로그인 페이지로 이동할까요?')) {
+      location.href = '/api/cafe24/auth';
+    }
+    return;
+  }
+  document.getElementById('cafe24MallLabel').textContent = `— ${st.mallId}`;
+  document.getElementById('cafe24CheckAll').checked = false;
+  document.getElementById('cafe24SelCount').textContent = '';
+  document.getElementById('cafe24List').innerHTML =
+    '<div style="padding:20px;color:#6b7280;font-size:13px">카페24에서 제품 목록을 불러오는 중...</div>';
+  modal.style.display = 'flex';
+
+  let res;
+  try {
+    res = await fetch('/api/cafe24/products');
+  } catch (e) {
+    document.getElementById('cafe24List').innerHTML =
+      `<div style="padding:20px;color:#ef4444;font-size:13px">불러오기 실패(네트워크): ${esc(e.message)}</div>`;
+    return;
+  }
+  if (res.status === 401) {
+    closeCafe24Modal();
+    if (await showConfirm('카페24 인증이 만료되었습니다.\n다시 인증할까요?')) location.href = '/api/cafe24/auth';
+    return;
+  }
+  if (!res.ok) {
+    let msg = String(res.status);
+    try { const err = await res.json(); if (err && err.error) msg = err.error; } catch {}
+    document.getElementById('cafe24List').innerHTML =
+      `<div style="padding:20px;color:#ef4444;font-size:13px">불러오기 실패: ${esc(msg)}</div>`;
+    return;
+  }
+  cafe24Items = await res.json();
+  renderCafe24List();
+}
+
+function renderCafe24List() {
+  const box = document.getElementById('cafe24List');
+  if (!box) return;
+  if (!cafe24Items.length) {
+    box.innerHTML = '<div style="padding:20px;color:#6b7280;font-size:13px">카페24에 등록된 제품이 없습니다.</div>';
+    return;
+  }
+  box.innerHTML = cafe24Items.map(item => `
+    <label style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:13px">
+      <input type="checkbox" class="cafe24-check" data-no="${item.productNo}" onchange="updateCafe24SelCount()">
+      ${item.image
+        ? `<img src="${esc(item.image)}" style="width:40px;height:40px;object-fit:cover;border-radius:6px;flex-shrink:0" onerror="this.style.display='none'">`
+        : '<span style="width:40px;height:40px;background:#f3f4f6;border-radius:6px;flex-shrink:0"></span>'}
+      <span style="flex:1;min-width:0">
+        <span style="display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(item.name)}</span>
+        <span style="display:block;font-size:12px;color:#9ca3af">
+          No.${item.productNo}
+          ${item.price != null ? ` · ${Number(item.price).toLocaleString()}원` : ''}
+          ${item.selling ? '' : ' · <span style="color:#ef4444">판매안함</span>'}
+        </span>
+      </span>
+      ${item.imported ? `<span style="font-size:11px;color:#2563eb;background:#dbeafe;padding:2px 8px;border-radius:10px;white-space:nowrap" title="관리명: ${esc(item.importedAs || '')}">가져옴</span>` : ''}
+    </label>
+  `).join('');
+  updateCafe24SelCount();
+}
+
+function toggleCafe24All(checked) {
+  document.querySelectorAll('.cafe24-check').forEach(cb => { cb.checked = checked; });
+  updateCafe24SelCount();
+}
+
+function updateCafe24SelCount() {
+  const el = document.getElementById('cafe24SelCount');
+  if (!el) return;
+  const n = document.querySelectorAll('.cafe24-check:checked').length;
+  el.textContent = n ? `${n}개 선택됨` : '';
+}
+
+async function importCafe24Selected() {
+  const nos = [...document.querySelectorAll('.cafe24-check:checked')].map(cb => Number(cb.dataset.no));
+  if (!nos.length) { showAlert('가져올 제품을 선택해주세요.'); return; }
+  const btn = document.getElementById('cafe24ImportBtn');
+  btn.disabled = true;
+  btn.textContent = '가져오는 중...';
+  let res, data;
+  try {
+    res = await fetch('/api/cafe24/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ productNos: nos }),
+    });
+    data = await res.json();
+  } catch (e) {
+    showAlert('가져오기 실패(네트워크): ' + e.message);
+    btn.disabled = false; btn.textContent = '선택 가져오기';
+    return;
+  }
+  btn.disabled = false;
+  btn.textContent = '선택 가져오기';
+  if (!res.ok) {
+    showAlert('가져오기 실패: ' + (data && data.error ? data.error : res.status));
+    return;
+  }
+  closeCafe24Modal();
+  await loadProducts();
+  let msg = `카페24 가져오기 완료 — 신규 ${data.created}개, 갱신 ${data.updated}개`;
+  if (data.failed && data.failed.length) msg += `\n실패 ${data.failed.length}건:\n` + data.failed.join('\n');
+  showAlert(msg);
+}
+
+function closeCafe24Modal() {
+  const modal = document.getElementById('cafe24Modal');
+  if (modal) modal.style.display = 'none';
 }
