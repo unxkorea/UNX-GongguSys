@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "인포크링크 제안서 자동 발송 매크로",
   "main": "src/index.js",
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
     "ui": "node server.js",
     "start": "node src/index.js",
