@@ -23,7 +23,7 @@ npm run tunnel        # cloudflared로 외부 임시 URL 발급 (ngrok은 md/how
 UI에서 "발송 시작"을 누르면 [server.js](server.js)가 `node src/index.js` 자식 프로세스를 spawn하고, 필요 시 `EMAIL_ACCOUNT_ID` 환경변수를 주입한다. UI가 보여주는 실시간 로그는 자식 프로세스의 stdout/stderr 버퍼(`macroLogs`, `replyLogs`)다.
 
 테스트/린트 스크립트는 없다.
-
+ 
 ### 관리 UI 구조 — EJS MPA (탭 = 페이지)
 
 관리 UI는 탭마다 실제 URL을 갖는 **MPA**다. 예전엔 `public/index.html` 단일 SPA였으나 EJS 10페이지로 분리했다.
