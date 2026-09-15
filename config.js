@@ -19,7 +19,18 @@ module.exports = {
 
   // 브라우저 설정
   // [요청] 외부 배포 대응 — settings.json에서 headless 토글 가능 (외부에서 발송 트리거 시 로컬 크롬창 안 뜨게)
-  get HEADLESS() { return !!loadSettings().headless; },
+  // [요청] Railway 전체 이관 — env 우선순위 (Railway에서 자동 headless=true, 로컬은 settings.json 또는 기본값=false)
+  get HEADLESS() {
+    // 1순위: 환경변수 HEADLESS_MODE (Railway에서 설정)
+    if (process.env.HEADLESS_MODE !== undefined) {
+      return process.env.HEADLESS_MODE === 'true';
+    }
+    // 2순위: settings.json (로컬 UI 토글)
+    const setting = loadSettings().headless;
+    if (setting !== undefined) return !!setting;
+    // 3순위: 기본값 false (로컬에서 개발 시 창 띄우기)
+    return false;
+  },
   SLOW_MO: 300,           // 각 동작 사이 딜레이 (ms)
 
   // 타임아웃
