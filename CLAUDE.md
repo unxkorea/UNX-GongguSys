@@ -18,7 +18,8 @@ npm run tunnel        # cloudflared로 외부 임시 URL 발급 (ngrok은 md/how
 ```
 
 - `PORT=8080 npm run ui` — 포트 오버라이드
-- `USE_SUPABASE=false npm run ui` — JSON 롤백 모드
+- `DB_MODE=json npm run ui` — JSON 롤백 모드 (구 `USE_SUPABASE=false`도 동일하게 인식)
+- `npm run db:schema` / `npm run db:migrate -- --force` / `npm run db:verify` — Railway Postgres 스키마 적용 / Supabase→Postgres 데이터 이관 / 검증
 
 UI에서 "발송 시작"을 누르면 [server.js](server.js)가 `node src/index.js` 자식 프로세스를 spawn하고, 필요 시 `EMAIL_ACCOUNT_ID` 환경변수를 주입한다. UI가 보여주는 실시간 로그는 자식 프로세스의 stdout/stderr 버퍼(`macroLogs`, `replyLogs`)다.
 
@@ -60,15 +61,17 @@ UI에서 "발송 시작"을 누르면 [server.js](server.js)가 `node src/index.
 
 모든 데이터 I/O는 [src/repo/](src/repo/) 아래 repo를 경유한다 (`accountsRepo`, `productsRepo`, `manufacturersRepo`, `influencersRepo`, `emailAccountsRepo`, `sentLogRepo`, `repliesRepo`, `leadsRepo`, `catalogsRepo`, `employeesRepo`, `phrasesRepo`).
 
-- **기본 모드: Supabase** — Postgres + Storage. 설정은 [.env](.env)의 `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
-- **롤백 모드: JSON** — `USE_SUPABASE=false` 환경변수로 기존 JSON 파일 I/O 복귀. 각 repo가 `config.USE_SUPABASE` 플래그로 내부 분기.
-- Supabase 클라이언트 싱글톤: [src/db.js](src/db.js).
+- **기본 모드: Postgres(Railway)** — `DB_MODE=pg`. 접속은 `DATABASE_URL` 하나(Railway Variables는 내부 주소, 로컬 `.env`는 Railway의 `DATABASE_PUBLIC_URL` 값). 각 repo의 `*Pg()` 함수가 `pg`로 직접 SQL을 실행한다.
+- **롤백 모드: JSON** — `DB_MODE=json` 환경변수로 기존 JSON 파일 I/O 복귀. 각 repo가 `config.USE_DB` 플래그로 내부 분기(`config.USE_SUPABASE`는 하위 호환 별칭).
+- pg Pool 싱글톤 + 헬퍼(`query/one/withTx/insertMany/isUniqueViolation`): [src/db.js](src/db.js). `DATABASE_URL` 없으면 require 시점에 throw하므로 repo들은 `require('../db')`를 함수 안에서 지연 로드한다.
+- 타입 파서: `date`는 `'YYYY-MM-DD'` 문자열, `timestamptz`는 ISO 문자열, `int8`은 number로 고정(PostgREST 시절 반환 형태와 동일하게 맞춤). 새 SQL을 쓸 때 Date 객체를 기대하지 말 것.
+- 공개 카탈로그는 anon 키 대신 서버의 `GET /api/public/catalog/:code`(인증 면제, CORS 허용)가 `catalogsRepo.getPublicByCode()`로 응답한다.
 - 설정값(`settings.json`)만은 DB로 옮기지 않고 로컬 파일 유지 — `config.MAIL_BCC` getter가 동기 접근해서.
 
 ### 핵심 도메인 규칙
 
 - **주간 10건 제한**: [config.js](config.js)의 `WEEKLY_LIMIT = 10`. ISO 주차 키(예: `2026-W16`)로 `weekly_tracking` 테이블에 누적.
-  - Supabase 모드: `increment_weekly_count(account_id, week_key)` RPC로 **원자적 UPSERT**. 병렬 발송·크래시 시에도 카운터 유실·중복 없음.
+  - DB 모드: plpgsql 함수 `increment_weekly_count(account_id, week_key)`로 **원자적 UPSERT**(`select increment_weekly_count($1,$2)`). 병렬 발송·크래시 시에도 카운터 유실·중복 없음.
   - JSON 모드: `accounts.json[].weeklyTracking` 즉시 파일 write.
 - **이메일 vs 인포크 라우팅**: `EMAIL_REGEX` 매칭으로 자동 분기. `profileUrl`이 `x`면 스킵, `@` 포함이면 이메일, 그 외는 인포크 URL(`http://` 자동 보정).
 - **DOM 셀렉터 중앙화**: 모든 인포크 사이트 셀렉터는 [src/selectors.js](src/selectors.js)에 있다. UI 변경으로 깨지면 여기만 고친다.
@@ -78,7 +81,7 @@ UI에서 "발송 시작"을 누르면 [server.js](server.js)가 `node src/index.
 
 [src/checkReplies.js](src/checkReplies.js)는 각 계정으로 headless 로그인 → `sendbird-badge` 엘리먼트 개수로 답장 수 집계 → [src/repo/repliesRepo.js](src/repo/repliesRepo.js)가 계정 하나 끝날 때마다 실시간 기록.
 
-- Supabase 모드: `reply_runs` 1 row + `replies` N rows. `reply_runs.finished_at IS NULL`이면 "진행 중(partial)".
+- DB 모드: `reply_runs` 1 row + `replies` N rows. `reply_runs.finished_at IS NULL`이면 "진행 중(partial)".
 - JSON 모드: `replies.json` 단일 파일, `partial: true/false` flag.
 - UI는 어느 모드든 공통으로 repo를 통해 조회.
 
@@ -86,10 +89,10 @@ UI에서 "발송 시작"을 누르면 [server.js](server.js)가 `node src/index.
 
 ### 이미지 저장/참조
 
-- Supabase 모드: `product-photos`, `signatures` 버킷 (public). DB에는 public URL이 저장됨.
+- **과도기 상태(Railway 전환 4단계 전)**: 사진 파일 본체는 아직 Supabase Storage(`product-photos`, `signatures` 버킷, public)에 있고 DB에는 그 public URL이 저장돼 있다. 4단계(파일 저장소)에서 관리자 전용 저장소로 옮기고 URL을 치환할 예정.
 - 이메일 발송: nodemailer는 URL·로컬 경로 모두 `path:`에 직접 넘길 수 있어 별도 다운로드 불필요.
 - 인포크 제안서(Playwright `setInputFiles`)는 로컬 경로만 받음 → [src/proposal.js](src/proposal.js)의 `resolvePhotosToLocal()`이 ① `assets/<basename>` 존재 시 즉시 사용, ② 없으면 `%TEMP%/inpock-photos/`에 1회 다운로드 후 사용.
-- 신규 업로드(UI): multer가 먼저 `assets/`에 저장 → [src/repo/productsRepo.js](src/repo/productsRepo.js)의 `uploadPhoto()`가 Storage로 올리고 public URL 반환.
+- 신규 업로드(UI): multer가 먼저 `assets/`에 저장 → [src/repo/productsRepo.js](src/repo/productsRepo.js)의 `uploadPhoto()`가 [src/legacy/supabaseStorage.js](src/legacy/supabaseStorage.js)로 Storage에 올리고 public URL 반환(`.env`에 `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`가 있을 때만. 없으면 로컬 `assets/` 경로 반환 → Railway에선 재배포 시 유실되므로 키를 유지할 것). 4단계에서 이 헬퍼와 `@supabase/supabase-js` 의존성을 함께 제거한다.
 
 ### 로그인/로그아웃 공통 규약
 
@@ -108,9 +111,9 @@ UI에서 "발송 시작"을 누르면 [server.js](server.js)가 `node src/index.
 
 ## 데이터 소스
 
-### Supabase (기본)
+### Railway Postgres (기본)
 
-[scripts/schema.sql](scripts/schema.sql)이 전체 DDL. 12개 테이블:
+[scripts/schema.pg.sql](scripts/schema.pg.sql)이 전체 DDL(`npm run db:schema`로 적용, 멱등). [scripts/schema.sql](scripts/schema.sql)은 Supabase 시절 원본으로, RLS·anon grant·security definer만 다르다. 테이블 추가·변경 시 **schema.pg.sql을 기준으로** 고친다. 테이블:
 - `accounts` + `weekly_tracking` (발송 계정 / 주간 카운터)
 - `email_accounts` (Gmail 계정·서명)
 - `manufacturers` (제조사 마스터 — name/contact_person/contact/hurdle/schedule/memo/status). products가 `manufacturer_id`로 참조. `status`: 빈값=진행 / `협업종료`(협업종료 시 연결 제품 status도 함께 변경)
@@ -120,24 +123,24 @@ UI에서 "발송 시작"을 누르면 [server.js](server.js)가 `node src/index.
 - `reply_runs` + `replies` (인포크 확인)
 - `leads` (답장 온 인플루언서 추적 — replied_at/proposal_sent_at/remind_at/final_status)
 - `catalogs` (인플루언서 맞춤 추천 카탈로그 — code/product_ids/view_count)
-- Storage 버킷: `product-photos`, `signatures` (모두 public)
-- RPC: `increment_weekly_count(account_id, week_key)` — 원자적 카운터 증가
-- RPC: `get_catalog_by_code(p_code)` — 공개 카탈로그 1건 조회 (SECURITY DEFINER로 RLS 우회, view_count 자동 증가). anon 키만 EXECUTE 가능.
-- RLS: `catalogs`/`products`/`product_photos` 활성화 (anon 직접 SELECT 차단, service_role은 우회 → 관리 UI 무영향).
+- `employees` + `phrases` (직원 / 직원별 자주 쓰는 문구), `settings`(미사용, 설정은 settings.json), `cafe24_tokens`(카페24 OAuth 토큰)
+- SQL 함수: `increment_weekly_count(account_id, week_key)` / `adjust_weekly_count(account_id, week_key, delta)` — 원자적 카운터 증감
+- SQL 함수: `get_catalog_by_code(p_code)` — 공개 카탈로그 1건 조회(view_count 자동 증가). `catalogsRepo.getPublicByCode()`가 호출.
+- RLS·anon 역할 없음. DB 접근은 서버(`DATABASE_URL`)뿐이고, 외부 노출 경로는 `/api/public/catalog/:code` 하나다.
 
 ### 공개 추천 카탈로그 — [public/recommend/](public/recommend/) (Vercel 분리 배포)
 
 관리 UI의 "추천" 탭에서 인플루언서별 카탈로그 생성 → `/recommend/?c=<code>` 공개 URL 발급.
-- **분리 배포 이유**: 관리자 PC가 꺼져 있어도 인플루언서가 링크를 열 수 있어야 함. Vercel에 별도 정적 사이트로 띄움.
-- 파일 구성: `index.html` / `style.css` / `catalog.js` / `config.js`(anon 키 하드코딩) / `vercel.json`(`/c/:code` rewrite).
-- 데이터 흐름: 페이지가 supabase-js CDN으로 anon 키를 사용해 `get_catalog_by_code` RPC 호출 → 제품 + 사진 + view_count 자동 증가.
+- **분리 배포 이유(과거)**: 관리자 PC가 꺼져 있어도 링크가 열려야 했음. 지금은 관리 서버가 Railway에서 24시간 돌므로 `https://<railway-domain>/recommend/?c=<code>`로 서버가 직접 서빙해도 된다. Vercel 배포를 유지할 수도 있음(아래 `CATALOG_API_BASE` 필요).
+- 파일 구성: `index.html` / `style.css` / `catalog.js` / `config.js`(`window.CATALOG_API_BASE`) / `vercel.json`(`/c/:code` rewrite).
+- 데이터 흐름: 페이지가 `GET {CATALOG_API_BASE}/api/public/catalog/:code`를 fetch → 서버가 `get_catalog_by_code` SQL 함수(DB 모드) 또는 JSON 조립(JSON 모드) → 제품 + 사진 + view_count 자동 증가. 404면 "존재하지 않는 카탈로그".
+- `CATALOG_API_BASE`: 빈 문자열이면 같은 도메인(서버 직접 서빙·로컬). Vercel에 분리 배포하면 Railway 앱 도메인을 넣는다. 이 라우트만 `Access-Control-Allow-Origin: *`.
 - Vercel 배포: GitHub 연동 → Add New Project → Root Directory = `public/recommend` → Framework `Other`. 기본 도메인 `xxx.vercel.app` 사용.
-- 관리 UI 설정 → "추천 카탈로그 공개 URL"에 Vercel 도메인 입력. 미입력 시 `${currentOrigin}/recommend/` (로컬 테스트용)로 폴백.
-- 보안: `catalogs`/`products`/`product_photos` RLS 활성. anon은 직접 SELECT 불가, RPC만 통과. service_role(서버측)은 RLS 우회.
+- 관리 UI 설정 → "추천 카탈로그 공개 URL"에 공개 도메인 입력. 미입력 시 `${currentOrigin}/recommend/`로 폴백.
 
 ### JSON 파일 (롤백용으로 유지)
 
-`USE_SUPABASE=false`일 때만 사용. 스키마는 DB와 동일한 의미:
+`DB_MODE=json`일 때만 사용. 스키마는 DB와 동일한 의미:
 - `accounts.json`: `{id, username, password, weeklyTracking: {"YYYY-Www": n}}`
 - `emailAccounts.json`: `{id, email, appPassword, senderName, signature, signatureImage}`
 - `products.json`: `{products: [{name, brandName, productName, campaignType, category, usp, offerMessage, photos[], mailSubject?, manufacturerId?, status?}]}` (`manufacturerId`=제조사 연결, `status`=빈값/`협업종료`)
@@ -145,26 +148,25 @@ UI에서 "발송 시작"을 누르면 [server.js](server.js)가 `node src/index.
 - `influencers.json` / `failed.json`: `{nickname, profileUrl, productName, [error]}`
 - `replies.json`: `{checkedAt, partial, results[]}`
 - `leads.json`: `{leads: [{id, nickname, profileUrl, interestedProductName, suitableProductNote, repliedAt, proposalSentAt, remindAt, finalStatus, notes, ...}]}`
-- `catalogs.json`: `{catalogs: [{id, code, title, influencerNickname, leadId, productIds[], viewCount, viewedAt, createdAt}]}` (롤백 모드 전용 — 공개 페이지는 Supabase RPC 의존이라 JSON 모드에선 동작 안 함)
+- `catalogs.json`: `{catalogs: [{id, code, title, influencerNickname, leadId, productIds[], viewCount, viewedAt, createdAt}]}` (JSON 모드에서도 공개 페이지가 동작 — `catalogsRepo.getPublicByCodeJson()`이 제품을 조립)
 
 ### 설정 파일 (양쪽 모드 공통)
 
 - `settings.json`: `mailBcc` 등. DB로 옮기지 않음 — [config.js](config.js) getter가 sync 접근해야 해서.
-- [.env](.env): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (gitignored).
+- [.env](.env) (gitignored): `DATABASE_URL`(필수). `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`는 4단계 전까지 사진 업로드·이관 스크립트용으로 유지.
 
 ## 마이그레이션·검증 스크립트 ([scripts/](scripts/))
 
-- `schema.sql` — Supabase SQL Editor에 붙여넣는 DDL (멱등)
-- `uploadAssets.js` — 로컬 `assets/` → Storage 업로드
-- `migrateJsonToSupabase.js --force` — JSON 전량을 DB로 이관 (테이블 비우고 재삽입)
-- `verifyMigration.js` — 이관 후 카운트·관계 검증
-- `testAccountsRepo.js` / `testProductsRepo.js` / ... — 각 repo의 JSON·Supabase 결과 비교
-- `testIncrementRpc.js` — 원자적 카운터 병렬 10건 동시 호출 테스트
+- `schema.pg.sql` + `applySchemaPg.js`(`npm run db:schema`) — Railway Postgres DDL 적용 (멱등, 단일 트랜잭션)
+- `migrateSupabaseToPg.js`(`npm run db:migrate`) — Supabase 전 테이블 → Postgres, id 보존 + 시퀀스 재설정. 기본은 대상이 비어 있을 때만, `--force`는 truncate 후 재삽입, `--dry-run`은 읽기만.
+- `verifyPgMigration.js`(`npm run db:verify`) — 양쪽 건수 비교 + FK 고아 + 시퀀스 상태
+- Supabase 시절(현재 실행 불가·참고용): `schema.sql`, `uploadAssets.js`, `migrateJsonToSupabase.js`, `verifyMigration.js`, `test*Repo.js`, `testIncrementRpc.js`, `cleanupOrphanPhotos.js`, `migrateBrandsToManufacturers.js`, `diagInfluencerDelete.js`. 4단계 정리 대상.
 
 ## 주의사항
 
 - `config.HEADLESS = false`가 기본 — 브라우저 창이 뜨는 건 의도다. 인포크 확인만 `checkReplies.js` 내부에서 `headless: true`로 강제한다.
 - `products.json`(또는 DB)에 없는 `productName`을 가진 인플루언서가 있으면 [src/index.js](src/index.js)가 `process.exit(1)` — 제품명 매칭은 엄격하다.
 - **이미지 경로 혼재**: 현재 `assets/` 폴더는 (1) 마이그레이션 전 레거시 이미지, (2) UI 신규 업로드 임시저장, (3) 제안서용 로컬 캐시 3역할을 겸한다. 향후 정리 여지.
-- **Supabase 무료 프로젝트**: 7일 미접속 시 자동 pause. 이 프로젝트는 cron + 수동 접속으로 실질적으로 pause되지 않음.
-- **롤백 절차**: 문제 발생 시 `USE_SUPABASE=false npm run ui`로 JSON 모드 즉시 복귀. 이 상태에서 JSON 파일을 수정했다면, Supabase로 복귀 전에 `node scripts/migrateJsonToSupabase.js --force` 재실행 필요.
+- **Supabase 프로젝트는 4단계 전까지 삭제 금지**: 사진 파일 본체와 신규 업로드가 아직 Supabase Storage에 있다. 무료 프로젝트는 7일 미접속 시 pause되지만 업로드가 있으면 유지됨.
+- **롤백 절차**: 문제 발생 시 `DB_MODE=json npm run ui`로 JSON 모드 즉시 복귀. JSON 모드에서 데이터를 수정했다면 DB로 되돌릴 때 수동 반영 필요(JSON→Postgres 이관 스크립트는 없음).
+- **Railway Postgres 외부 접속**: 로컬 이관·검증이 끝나면 Postgres 서비스의 TCP Proxy를 꺼도 된다(앱은 내부 주소 사용). 다시 로컬에서 붙을 일이 있으면 켜고 `DATABASE_PUBLIC_URL`을 `.env`에 넣는다.

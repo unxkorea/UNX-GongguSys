@@ -1,6 +1,7 @@
 // [요청] 카페24(언엑스샵) 제품 연동 — Admin API OAuth 토큰 관리 + 제품 조회
-// - 토큰은 Supabase cafe24_tokens 테이블에 저장 (Railway 파일시스템은 재배포 시 초기화되므로 파일 저장 불가)
-// - JSON 롤백 모드(USE_SUPABASE=false)에서는 미지원 — isSupported()로 가드
+// - 토큰은 DB cafe24_tokens 테이블에 저장 (Railway 파일시스템은 재배포 시 초기화되므로 파일 저장 불가)
+// - JSON 롤백 모드(DB_MODE=json)에서는 미지원 — isSupported()로 가드
+// [요청] Railway 전환 1단계 — 토큰 저장/조회를 supabase-js → pg(SQL)로 교체
 // - Node 20 전역 fetch 사용 (추가 의존성 없음)
 require('dotenv').config();
 const config = require('../config');
@@ -16,23 +17,20 @@ function isConfigured() {
   return !!(MALL_ID && CLIENT_ID && CLIENT_SECRET);
 }
 function isSupported() {
-  return config.USE_SUPABASE;
+  return config.USE_DB;
 }
 function apiBase() {
   return `https://${MALL_ID}.cafe24api.com`;
 }
 
-// ─── 토큰 저장/조회 (Supabase) ───
+// ─── 토큰 저장/조회 (Postgres) ───
 function db() {
-  // db.js는 SUPABASE_URL 없으면 require 시점에 throw하므로 지연 로드
-  return require('./db').supabase;
+  // db.js는 DATABASE_URL 없으면 require 시점에 throw하므로 지연 로드
+  return require('./db');
 }
 
 async function loadTokenRow() {
-  const { data, error } = await db()
-    .from('cafe24_tokens').select('*').eq('mall_id', MALL_ID).maybeSingle();
-  if (error) throw error;
-  return data || null;
+  return db().one('select * from cafe24_tokens where mall_id = $1', [MALL_ID]);
 }
 
 async function saveTokenRow(tokenResponse) {
@@ -44,8 +42,17 @@ async function saveTokenRow(tokenResponse) {
     refresh_token_expires_at: tokenResponse.refresh_token_expires_at || null,
     updated_at: new Date().toISOString(),
   };
-  const { error } = await db().from('cafe24_tokens').upsert(row, { onConflict: 'mall_id' });
-  if (error) throw error;
+  await db().query(
+    `insert into cafe24_tokens (mall_id, access_token, refresh_token, expires_at, refresh_token_expires_at, updated_at)
+     values ($1, $2, $3, $4, $5, $6)
+     on conflict (mall_id) do update
+       set access_token = excluded.access_token,
+           refresh_token = excluded.refresh_token,
+           expires_at = excluded.expires_at,
+           refresh_token_expires_at = excluded.refresh_token_expires_at,
+           updated_at = excluded.updated_at`,
+    [row.mall_id, row.access_token, row.refresh_token, row.expires_at, row.refresh_token_expires_at, row.updated_at]
+  );
   return row;
 }
 

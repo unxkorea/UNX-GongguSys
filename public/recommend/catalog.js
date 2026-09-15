@@ -1,7 +1,7 @@
 // [요청] 추천 카탈로그 페이지 — 공개 갤러리 + 모달 (Vercel 배포용)
 //   URL 파라미터 ?c=<code> 또는 ?code=<code> 로 코드 추출
-//   Supabase RPC get_catalog_by_code 호출 → 렌더
-//   anon 키는 SUPABASE_ANON_KEY로 공개 (RLS + RPC SECURITY DEFINER 정책으로 보호)
+//   [요청] Railway 전환 1단계 — Supabase RPC 직접 호출 대신 관리 서버의 공개 API
+//   GET {CATALOG_API_BASE}/api/public/catalog/:code 를 fetch → 렌더 (config.js에서 주소 설정)
 
 (function () {
   'use strict';
@@ -35,11 +35,9 @@
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
-  function isValidConfig() {
-    return typeof window.SUPABASE_URL === 'string'
-      && /^https?:\/\//.test(window.SUPABASE_URL)
-      && typeof window.SUPABASE_ANON_KEY === 'string'
-      && window.SUPABASE_ANON_KEY.length > 20;
+  function apiBase() {
+    const b = typeof window.CATALOG_API_BASE === 'string' ? window.CATALOG_API_BASE.trim() : '';
+    return b.replace(/\/+$/, '');
   }
 
   async function loadCatalog() {
@@ -48,15 +46,16 @@
       showError('유효한 카탈로그 링크가 아닙니다.');
       return;
     }
-    if (!isValidConfig()) {
-      showError('설정 오류: config.js의 SUPABASE_URL / SUPABASE_ANON_KEY를 확인해주세요.');
-      return;
-    }
-
-    const client = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
-    const { data, error } = await client.rpc('get_catalog_by_code', { p_code: code });
-
-    if (error) {
+    let data = null;
+    try {
+      const res = await fetch(apiBase() + '/api/public/catalog/' + encodeURIComponent(code), { cache: 'no-store' });
+      if (res.status === 404) {
+        showError('존재하지 않거나 만료된 카탈로그입니다.');
+        return;
+      }
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      data = await res.json();
+    } catch (error) {
       console.error(error);
       showError('카탈로그를 불러오지 못했습니다.');
       return;

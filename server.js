@@ -49,6 +49,7 @@ function authRequired(req, res, next) {
   if (!password) return next();                     // 비번 미설정 → auth 비활성
   if (req.path === '/favicon.ico') return next();   // favicon은 인증 없이 허용 (로그인 페이지 탭 아이콘)
   if (req.path.startsWith('/recommend')) return next(); // [요청] 추천 카탈로그 공개 페이지 — 링크만 있으면 인증 없이 열람
+  if (req.path.startsWith('/api/public/')) return next(); // [요청] Railway 전환 1단계 — 공개 카탈로그 API (anon 키 RPC 대체)
   if (req.session && req.session.authenticated) return next();
   // API 호출은 401, 그 외는 /login으로 리다이렉트
   if (req.path.startsWith('/api/')) {
@@ -773,7 +774,7 @@ app.post('/api/macro/start', async (req, res) => {
 
   // JSON 모드 fallback용: CSV도 갱신해둠 (child가 influencersRepo 경유로 읽지만,
   // influencers.json이 비어있고 CSV만 있는 레거시 상황 대비)
-  if (!config.USE_SUPABASE) {
+  if (!config.USE_DB) {
     const csvHeader = 'nickname,profileUrl,productName';
     const csvRows = influencers.map(i => `${i.nickname},${i.profileUrl},${i.productName}`);
     fs.writeFileSync(config.PATHS.influencers, [csvHeader, ...csvRows].join('\n'), 'utf-8');
@@ -968,6 +969,29 @@ app.get('/api/leads/reminders-due', async (req, res) => {
 // ─── 추천 카탈로그 API ───
 // [요청] 추천 카탈로그 페이지 — 인플루언서별 큐레이션 공유 링크
 const catalogsRepo = require('./src/repo/catalogsRepo');
+
+// [요청] Railway 전환 1단계 — 공개 카탈로그 조회 API (인증 면제, authRequired에서 /api/public/ 통과)
+//   예전엔 public/recommend 페이지가 브라우저에서 Supabase anon 키로 RPC를 직접 호출했다.
+//   Railway Postgres엔 anon 경로가 없으므로 서버가 대신 조회한다. 호출마다 view_count +1.
+//   Vercel에 분리 배포된 추천 페이지가 다른 도메인에서 호출할 수 있도록 CORS 허용(이 라우트만, 읽기 전용).
+app.options('/api/public/catalog/:code', (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type');
+  res.sendStatus(204);
+});
+app.get('/api/public/catalog/:code', async (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Cache-Control', 'no-store');
+  try {
+    const data = await catalogsRepo.getPublicByCode(req.params.code);
+    if (!data) return res.status(404).json({ error: 'not_found' });
+    res.json(data);
+  } catch (e) {
+    console.error('[public catalog]', e.message);
+    res.status(500).json({ error: 'internal' });
+  }
+});
 
 app.get('/api/catalogs', async (req, res) => {
   try {

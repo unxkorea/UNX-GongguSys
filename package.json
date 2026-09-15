@@ -13,7 +13,10 @@
     "reset-counts": "node src/resetCounts.js",
     "check-replies": "node src/checkReplies.js",
     "cleanup-orphans": "node scripts/cleanupOrphanPhotos.js",
-    "tunnel": "cloudflared tunnel --url http://localhost:3000"
+    "tunnel": "cloudflared tunnel --url http://localhost:3000",
+    "db:schema": "node scripts/applySchemaPg.js",
+    "db:migrate": "node scripts/migrateSupabaseToPg.js",
+    "db:verify": "node scripts/verifyPgMigration.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.104.0",
@@ -26,6 +29,7 @@
     "multer": "^1.4.5-lts.1",
     "node-cron": "^4.2.1",
     "nodemailer": "^6.10.1",
+    "pg": "^8.23.0",
     "playwright": "^1.42.0"
   }
 }

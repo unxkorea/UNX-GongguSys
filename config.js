@@ -10,9 +10,13 @@ function loadSettings() {
 }
 
 module.exports = {
-  // [요청] Supabase 메인 DB 이전 — 현재 Supabase가 메인 DB.
-  // 긴급 롤백 시 `USE_SUPABASE=false npm run ui`로 JSON 모드 복귀 가능.
-  USE_SUPABASE: process.env.USE_SUPABASE !== 'false',
+  // [요청] Railway 전환 1단계 — 메인 DB가 Railway Postgres(pg). USE_SUPABASE 플래그를 DB_MODE로 개명.
+  //   DB_MODE=pg   : Postgres (기본). DATABASE_URL 필요.
+  //   DB_MODE=json : 로컬 JSON 파일 롤백 모드 (`DB_MODE=json npm run ui`). 구 `USE_SUPABASE=false`도 동일하게 인식.
+  DB_MODE: process.env.DB_MODE || (process.env.USE_SUPABASE === 'false' ? 'json' : 'pg'),
+  get USE_DB() { return this.DB_MODE !== 'json'; },
+  // 하위 호환 별칭(구 스크립트용). 신규 코드는 USE_DB를 쓸 것.
+  get USE_SUPABASE() { return this.USE_DB; },
 
   // 계정당 주간 발송 제한
   WEEKLY_LIMIT: 10,

@@ -1,11 +1,13 @@
 // [요청] Supabase 메인 DB 이전 — influencers repo (dual-mode)
+// [요청] Railway 전환 1단계 — Supabase 구현을 pg(SQL) 구현으로 교체
 // JSON 모드: influencers.json (pending) + failed.json 2개 파일
-// Supabase 모드: influencers 테이블 단일, status 컬럼으로 pending/sent/failed 구분
+// DB 모드: influencers 테이블 단일, status 컬럼으로 pending/sent/failed 구분
 const fs = require('fs');
 const path = require('path');
 const config = require('../../config');
-const { supabase } = require('../db');
 const { readInfluencers } = require('../influencerReader');
+
+function db() { return require('../db'); }
 
 const INFLUENCERS_JSON = path.resolve(__dirname, '..', '..', 'influencers.json');
 const FAILED_JSON = path.resolve(__dirname, '..', '..', 'failed.json');
@@ -78,7 +80,7 @@ async function requeueFailedJson() {
   return { added: toAdd.length };
 }
 
-// ─── Supabase 구현 ───
+// ─── Postgres 구현 ───
 function rowToInfluencer(r) {
   return {
     id: r.id,
@@ -89,170 +91,147 @@ function rowToInfluencer(r) {
   };
 }
 
-async function listPendingSupabase() {
-  const { data, error } = await supabase
-    .from('influencers')
-    .select('id, nickname, profile_url, product_name')
-    .eq('status', 'pending')
-    .order('id');
-  if (error) throw error;
-  return data.map(rowToInfluencer);
+async function listPendingPg() {
+  const { rows } = await db().query(
+    `select id, nickname, profile_url, product_name
+       from influencers where status = 'pending' order by id`
+  );
+  return rows.map(rowToInfluencer);
 }
 
-async function listFailedSupabase() {
-  const { data, error } = await supabase
-    .from('influencers')
-    .select('id, nickname, profile_url, product_name, error')
-    .eq('status', 'failed')
-    .order('id');
-  if (error) throw error;
-  return data.map(rowToInfluencer);
+async function listFailedPg() {
+  const { rows } = await db().query(
+    `select id, nickname, profile_url, product_name, error
+       from influencers where status = 'failed' order by id`
+  );
+  return rows.map(rowToInfluencer);
 }
 
-async function replaceAllPendingSupabase(list) {
+async function replaceAllPendingPg(list) {
   // status='pending'만 교체. sent/failed 이력은 보존.
-  const { error: delErr } = await supabase
-    .from('influencers').delete().eq('status', 'pending');
-  if (delErr) throw delErr;
-  if (!list || !list.length) return;
-  const rows = list.map(i => ({
-    nickname: i.nickname,
-    profile_url: i.profileUrl,
-    product_name: i.productName,
-    status: 'pending',
-  }));
-  // batch insert
-  for (let i = 0; i < rows.length; i += 200) {
-    const { error } = await supabase.from('influencers').insert(rows.slice(i, i + 200));
-    if (error) throw error;
-  }
+  await db().withTx(async client => {
+    await client.query(`delete from influencers where status = 'pending'`);
+    if (!list || !list.length) return;
+    await db().insertMany('influencers', ['nickname', 'profile_url', 'product_name', 'status'],
+      list.map(i => ({
+        nickname: i.nickname,
+        profile_url: i.profileUrl,
+        product_name: i.productName,
+        status: 'pending',
+      })), { client });
+  });
 }
 
-async function resetRunStateSupabase() {
+async function resetRunStatePg() {
   // run 시작 시 이전 failed 정리 (JSON 모드의 failed.json 초기화와 동등)
-  const { error } = await supabase.from('influencers').delete().eq('status', 'failed');
-  if (error) throw error;
+  await db().query(`delete from influencers where status = 'failed'`);
 }
 
-async function markFailedSupabase(influencer, errorMsg) {
+async function markFailedPg(influencer, errorMsg) {
   if (influencer.id != null) {
-    const { error } = await supabase.from('influencers')
-      .update({ status: 'failed', error: errorMsg, updated_at: new Date().toISOString() })
-      .eq('id', influencer.id);
-    if (error) throw error;
+    await db().query(
+      `update influencers set status = 'failed', error = $1, updated_at = now() where id = $2`,
+      [errorMsg, influencer.id]
+    );
     return;
   }
   // id가 없으면 natural key로 조회 후 업데이트, 없으면 신규 insert
-  const { data: rows } = await supabase.from('influencers')
-    .select('id').eq('nickname', influencer.nickname)
-    .eq('profile_url', influencer.profileUrl)
-    .eq('status', 'pending').limit(1);
-  if (rows && rows.length) {
-    await supabase.from('influencers')
-      .update({ status: 'failed', error: errorMsg })
-      .eq('id', rows[0].id);
+  const row = await db().one(
+    `select id from influencers
+      where nickname = $1 and profile_url = $2 and status = 'pending' limit 1`,
+    [influencer.nickname, influencer.profileUrl]
+  );
+  if (row) {
+    await db().query(
+      `update influencers set status = 'failed', error = $1, updated_at = now() where id = $2`,
+      [errorMsg, row.id]
+    );
   } else {
-    await supabase.from('influencers').insert({
-      nickname: influencer.nickname,
-      profile_url: influencer.profileUrl,
-      product_name: influencer.productName,
-      status: 'failed',
-      error: errorMsg,
-    });
+    await db().query(
+      `insert into influencers (nickname, profile_url, product_name, status, error)
+       values ($1, $2, $3, 'failed', $4)`,
+      [influencer.nickname, influencer.profileUrl, influencer.productName, errorMsg]
+    );
   }
 }
 
-// [요청] 발송한 인플루언서 건바이건 삭제 — Supabase 모드: DB row 물리 제거
+// [요청] 발송한 인플루언서 건바이건 삭제 — DB 모드: row 물리 제거
 // 감사 이력은 sent_log 테이블이 담당하므로 influencers에선 삭제해도 무방
-async function markSentSupabase(influencer) {
+async function markSentPg(influencer) {
   if (influencer.id != null) {
-    const { error } = await supabase.from('influencers')
-      .delete().eq('id', influencer.id);
-    if (error) throw error;
+    await db().query('delete from influencers where id = $1', [influencer.id]);
   } else {
-    const { error } = await supabase.from('influencers')
-      .delete()
-      .eq('nickname', influencer.nickname)
-      .eq('profile_url', influencer.profileUrl)
-      .eq('status', 'pending');
-    if (error) throw error;
+    await db().query(
+      `delete from influencers where nickname = $1 and profile_url = $2 and status = 'pending'`,
+      [influencer.nickname, influencer.profileUrl]
+    );
   }
 }
 
-async function clearFailedSupabase() {
-  await supabase.from('influencers').delete().eq('status', 'failed');
+async function clearFailedPg() {
+  await db().query(`delete from influencers where status = 'failed'`);
 }
 
-async function requeueFailedSupabase() {
-  const { data: failed, error: fetchErr } = await supabase.from('influencers')
-    .select('id').eq('status', 'failed');
-  if (fetchErr) throw fetchErr;
-  const ids = (failed || []).map(r => r.id);
-  if (!ids.length) return { added: 0 };
-  const { error } = await supabase.from('influencers')
-    .update({ status: 'pending', error: null, updated_at: new Date().toISOString() })
-    .in('id', ids);
-  if (error) throw error;
-  return { added: ids.length };
+async function requeueFailedPg() {
+  const r = await db().query(
+    `update influencers set status = 'pending', error = null, updated_at = now()
+      where status = 'failed'`
+  );
+  return { added: r.rowCount };
 }
 
 // [요청] 발송 중 크래시 대비 — 'sending' 중간 상태
-async function markSendingSupabase(influencer) {
+async function markSendingPg(influencer) {
   if (influencer.id == null) return;
-  const { error } = await supabase.from('influencers')
-    .update({ status: 'sending', updated_at: new Date().toISOString() })
-    .eq('id', influencer.id);
-  if (error) throw error;
+  await db().query(
+    `update influencers set status = 'sending', updated_at = now() where id = $1`,
+    [influencer.id]
+  );
 }
 
 // [요청] 확인필요 카드 — in-flight sending row 오표시 수정
 //   staleSeconds > 0: updated_at이 그만큼 이전인 row만 반환 (in-flight 제외).
 //   매크로 실행 중일 때 server에서 staleSeconds=120 전달해 정상 처리 중인 row를 카드에서 가린다.
-async function listSendingSupabase(staleSeconds = 0) {
-  let query = supabase
-    .from('influencers')
-    .select('id, nickname, profile_url, product_name, updated_at')
-    .eq('status', 'sending');
+async function listSendingPg(staleSeconds = 0) {
+  const params = [];
+  let where = `status = 'sending'`;
   if (staleSeconds > 0) {
-    const cutoffIso = new Date(Date.now() - staleSeconds * 1000).toISOString();
-    query = query.lt('updated_at', cutoffIso);
+    params.push(new Date(Date.now() - staleSeconds * 1000).toISOString());
+    where += ` and updated_at < $1`;
   }
-  const { data, error } = await query.order('id');
-  if (error) throw error;
-  return (data || []).map(r => ({
+  const { rows } = await db().query(
+    `select id, nickname, profile_url, product_name, updated_at
+       from influencers where ${where} order by id`, params
+  );
+  return rows.map(r => ({
     ...rowToInfluencer(r),
     updatedAt: r.updated_at,
   }));
 }
 
-async function resolveSendingAsSentSupabase(id) {
-  const { data: row, error: fetchErr } = await supabase.from('influencers')
-    .select('id, nickname, profile_url, product_name, status')
-    .eq('id', id).single();
-  if (fetchErr) throw fetchErr;
-  if (!row || row.status !== 'sending') {
-    throw new Error('sending 상태 row가 아닙니다.');
-  }
-  // sent_log에 추가 (account_id는 sending 상태만으로는 알 수 없음 → null)
-  const { error: logErr } = await supabase.from('sent_log').insert({
-    account_id: null,
-    nickname: row.nickname || null,
-    profile_url: row.profile_url || null,
-    product_name: row.product_name || null,
-    sent_at: new Date().toISOString(),
+async function resolveSendingAsSentPg(id) {
+  await db().withTx(async client => {
+    const r = await client.query(
+      `select id, nickname, profile_url, product_name, status from influencers where id = $1`, [id]);
+    const row = r.rows[0];
+    if (!row || row.status !== 'sending') {
+      throw new Error('sending 상태 row가 아닙니다.');
+    }
+    // sent_log에 추가 (account_id는 sending 상태만으로는 알 수 없음 → null)
+    await client.query(
+      `insert into sent_log (account_id, nickname, profile_url, product_name, sent_at)
+       values (null, $1, $2, $3, now())`,
+      [row.nickname || null, row.profile_url || null, row.product_name || null]
+    );
+    await client.query('delete from influencers where id = $1', [id]);
   });
-  if (logErr) throw logErr;
-  const { error: delErr } = await supabase.from('influencers')
-    .delete().eq('id', id);
-  if (delErr) throw delErr;
 }
 
-async function resolveSendingAsPendingSupabase(id) {
-  const { error } = await supabase.from('influencers')
-    .update({ status: 'pending', error: null, updated_at: new Date().toISOString() })
-    .eq('id', id)
-    .eq('status', 'sending');
-  if (error) throw error;
+async function resolveSendingAsPendingPg(id) {
+  await db().query(
+    `update influencers set status = 'pending', error = null, updated_at = now()
+      where id = $1 and status = 'sending'`, [id]
+  );
 }
 
 // JSON 모드는 이 기능을 지원하지 않음 (긴급 롤백 모드에서는 중단 복구 UI 불필요)
@@ -263,43 +242,43 @@ async function resolveSendingAsPendingJson() { throw new Error('JSON 모드에�
 
 // ─── 공용 API ───
 async function listPending() {
-  return config.USE_SUPABASE ? listPendingSupabase() : listPendingJson();
+  return config.USE_DB ? listPendingPg() : listPendingJson();
 }
 async function listFailed() {
-  return config.USE_SUPABASE ? listFailedSupabase() : listFailedJson();
+  return config.USE_DB ? listFailedPg() : listFailedJson();
 }
 async function replaceAllPending(list) {
-  return config.USE_SUPABASE ? replaceAllPendingSupabase(list) : replaceAllPendingJson(list);
+  return config.USE_DB ? replaceAllPendingPg(list) : replaceAllPendingJson(list);
 }
 async function resetRunState() {
-  return config.USE_SUPABASE ? resetRunStateSupabase() : resetRunStateJson();
+  return config.USE_DB ? resetRunStatePg() : resetRunStateJson();
 }
 async function markFailed(influencer, errorMsg) {
-  return config.USE_SUPABASE
-    ? markFailedSupabase(influencer, errorMsg)
+  return config.USE_DB
+    ? markFailedPg(influencer, errorMsg)
     : markFailedJson(influencer, errorMsg);
 }
 async function markSent(influencer) {
-  return config.USE_SUPABASE ? markSentSupabase(influencer) : markSentJson(influencer);
+  return config.USE_DB ? markSentPg(influencer) : markSentJson(influencer);
 }
 async function clearFailed() {
-  return config.USE_SUPABASE ? clearFailedSupabase() : clearFailedJson();
+  return config.USE_DB ? clearFailedPg() : clearFailedJson();
 }
 async function requeueFailed() {
-  return config.USE_SUPABASE ? requeueFailedSupabase() : requeueFailedJson();
+  return config.USE_DB ? requeueFailedPg() : requeueFailedJson();
 }
 // [요청] 발송 중 크래시 대비 — sending 상태 공용 API
 async function markSending(influencer) {
-  return config.USE_SUPABASE ? markSendingSupabase(influencer) : markSendingJson(influencer);
+  return config.USE_DB ? markSendingPg(influencer) : markSendingJson(influencer);
 }
 async function listSending(staleSeconds = 0) {
-  return config.USE_SUPABASE ? listSendingSupabase(staleSeconds) : listSendingJson();
+  return config.USE_DB ? listSendingPg(staleSeconds) : listSendingJson();
 }
 async function resolveSendingAsSent(id) {
-  return config.USE_SUPABASE ? resolveSendingAsSentSupabase(id) : resolveSendingAsSentJson(id);
+  return config.USE_DB ? resolveSendingAsSentPg(id) : resolveSendingAsSentJson(id);
 }
 async function resolveSendingAsPending(id) {
-  return config.USE_SUPABASE ? resolveSendingAsPendingSupabase(id) : resolveSendingAsPendingJson(id);
+  return config.USE_DB ? resolveSendingAsPendingPg(id) : resolveSendingAsPendingJson(id);
 }
 
 module.exports = {

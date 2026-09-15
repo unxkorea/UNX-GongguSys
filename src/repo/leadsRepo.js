@@ -1,11 +1,13 @@
 // [요청] 리드 관리 탭 신설 (답장 온 인플루언서 추적) — leads repo (dual-mode)
+// [요청] Railway 전환 1단계 — Supabase 구현을 pg(SQL) 구현으로 교체
 // list() 반환 구조: { id, nickname, profileUrl, interestedProductName, suitableProductNote,
 //                     repliedAt, proposalSentAt, remindAt, finalStatus, notes,
 //                     collaborationConverted, createdAt, updatedAt }
 // 날짜 필드는 ISO 'YYYY-MM-DD' 문자열 또는 null.
 const fs = require('fs');
 const config = require('../../config');
-const { supabase } = require('../db');
+
+function db() { return require('../db'); }
 
 // [요청] 리드 관리 — 최종 결과 항목 개편: 저장값 한글 통일 (pending→진행중, 무응답→무응답/보류, 완료 추가)
 const ALLOWED_STATUSES = ['진행중', '거절', '공구진행', '무응답/보류', '완료'];
@@ -36,7 +38,7 @@ function sanitizeStatus(s) {
   return ALLOWED_STATUSES.includes(s) ? s : '진행중';
 }
 
-// 들어오는 payload를 DB row 형태로 정규화. JSON/Supabase 양쪽에서 공용.
+// 들어오는 payload를 DB row 형태로 정규화. JSON/DB 양쪽에서 공용.
 function normalizeIncoming(payload) {
   const proposalSentAt = payload.proposalSentAt || null;
   const remindAt = payload.remindAt || autoRemindAt(proposalSentAt);
@@ -54,6 +56,11 @@ function normalizeIncoming(payload) {
     collaboration_converted: !!payload.collaborationConverted,
   };
 }
+
+const LEAD_COLUMNS = [
+  'nickname', 'profile_url', 'interested_product_name', 'suitable_product_note',
+  'replied_at', 'proposal_sent_at', 'remind_at', 'final_status', 'notes', 'collaboration_converted',
+];
 
 // DB row → 클라용 camelCase 매핑
 function rowToLead(r) {
@@ -73,6 +80,17 @@ function rowToLead(r) {
     createdAt: r.created_at || null,
     updatedAt: r.updated_at || null,
   };
+}
+
+function nicknameRequiredError() {
+  const e = new Error('NICKNAME_REQUIRED');
+  e.code = 'NICKNAME_REQUIRED';
+  return e;
+}
+function notFoundError() {
+  const e = new Error('NOT_FOUND');
+  e.code = 'NOT_FOUND';
+  return e;
 }
 
 // ─── JSON 구현 ───
@@ -104,11 +122,7 @@ async function insertOneJson(payload) {
   const raw = jsonLoadRaw();
   const list = raw.leads || [];
   const row = normalizeIncoming(payload);
-  if (!row.nickname) {
-    const e = new Error('NICKNAME_REQUIRED');
-    e.code = 'NICKNAME_REQUIRED';
-    throw e;
-  }
+  if (!row.nickname) throw nicknameRequiredError();
   const nextId = list.reduce((m, x) => Math.max(m, x.id || 0), 0) + 1;
   const now = new Date().toISOString();
   const newRow = { id: nextId, ...row, created_at: now, updated_at: now };
@@ -123,17 +137,9 @@ async function updateOneJson(id, payload) {
   const list = raw.leads || [];
   const numId = Number(id);
   const idx = list.findIndex(r => r.id === numId);
-  if (idx === -1) {
-    const e = new Error('NOT_FOUND');
-    e.code = 'NOT_FOUND';
-    throw e;
-  }
+  if (idx === -1) throw notFoundError();
   const row = normalizeIncoming(payload);
-  if (!row.nickname) {
-    const e = new Error('NICKNAME_REQUIRED');
-    e.code = 'NICKNAME_REQUIRED';
-    throw e;
-  }
+  if (!row.nickname) throw nicknameRequiredError();
   list[idx] = {
     ...list[idx],
     ...row,
@@ -163,89 +169,61 @@ async function listDueRemindersJson(today) {
     .map(r => rowToLead(r));
 }
 
-// ─── Supabase 구현 ───
-async function listSupabase() {
-  const { data, error } = await supabase
-    .from('leads')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .order('id', { ascending: true });
-  if (error) throw error;
-  return (data || []).map(rowToLead);
+// ─── Postgres 구현 ───
+async function listPg() {
+  const { rows } = await db().query('select * from leads order by created_at desc, id asc');
+  return rows.map(rowToLead);
 }
 
-async function insertOneSupabase(payload) {
+async function insertOnePg(payload) {
   const row = normalizeIncoming(payload);
-  if (!row.nickname) {
-    const e = new Error('NICKNAME_REQUIRED');
-    e.code = 'NICKNAME_REQUIRED';
-    throw e;
-  }
-  const { data, error } = await supabase
-    .from('leads').insert(row).select().single();
-  if (error) throw error;
+  if (!row.nickname) throw nicknameRequiredError();
+  const [data] = await db().insertMany('leads', LEAD_COLUMNS, [row], { returning: '*' });
   return rowToLead(data);
 }
 
-async function updateOneSupabase(id, payload) {
+async function updateOnePg(id, payload) {
   const numId = Number(id);
   const row = normalizeIncoming(payload);
-  if (!row.nickname) {
-    const e = new Error('NICKNAME_REQUIRED');
-    e.code = 'NICKNAME_REQUIRED';
-    throw e;
-  }
-  const { data, error } = await supabase
-    .from('leads')
-    .update({ ...row, updated_at: new Date().toISOString() })
-    .eq('id', numId)
-    .select()
-    .single();
-  if (error) {
-    if (error.code === 'PGRST116') {
-      const e = new Error('NOT_FOUND');
-      e.code = 'NOT_FOUND';
-      throw e;
-    }
-    throw error;
-  }
-  return rowToLead(data);
+  if (!row.nickname) throw nicknameRequiredError();
+  const sets = LEAD_COLUMNS.map((c, i) => `${c} = $${i + 1}`).join(', ');
+  const params = LEAD_COLUMNS.map(c => row[c]);
+  params.push(numId);
+  const r = await db().query(
+    `update leads set ${sets}, updated_at = now() where id = $${params.length} returning *`, params);
+  if (!r.rowCount) throw notFoundError();
+  return rowToLead(r.rows[0]);
 }
 
-async function removeOneSupabase(id) {
-  const numId = Number(id);
-  const { error } = await supabase.from('leads').delete().eq('id', numId);
-  if (error) throw error;
+async function removeOnePg(id) {
+  await db().query('delete from leads where id = $1', [Number(id)]);
 }
 
-async function listDueRemindersSupabase(today) {
+async function listDueRemindersPg(today) {
   const t = today || todayIso();
-  const { data, error } = await supabase
-    .from('leads')
-    .select('*')
-    .eq('final_status', '진행중')
-    .not('remind_at', 'is', null)
-    .lte('remind_at', t)
-    .order('remind_at', { ascending: true });
-  if (error) throw error;
-  return (data || []).map(rowToLead);
+  const { rows } = await db().query(
+    `select * from leads
+      where final_status = '진행중' and remind_at is not null and remind_at <= $1
+      order by remind_at asc`, [t]
+  );
+  return rows.map(rowToLead);
 }
 
 // ─── 공용 API ───
 async function list() {
-  return config.USE_SUPABASE ? listSupabase() : listJson();
+  return config.USE_DB ? listPg() : listJson();
 }
 async function insertOne(payload) {
-  return config.USE_SUPABASE ? insertOneSupabase(payload) : insertOneJson(payload);
+  return config.USE_DB ? insertOnePg(payload) : insertOneJson(payload);
 }
 async function updateOne(id, payload) {
-  return config.USE_SUPABASE ? updateOneSupabase(id, payload) : updateOneJson(id, payload);
+  return config.USE_DB ? updateOnePg(id, payload) : updateOneJson(id, payload);
 }
 async function removeOne(id) {
-  return config.USE_SUPABASE ? removeOneSupabase(id) : removeOneJson(id);
+  return config.USE_DB ? removeOnePg(id) : removeOneJson(id);
 }
 async function listDueReminders(today) {
-  return config.USE_SUPABASE ? listDueRemindersSupabase(today) : listDueRemindersJson(today);
+  return config.USE_DB ? listDueRemindersPg(today) : listDueRemindersJson(today);
 }
 
 module.exports = {

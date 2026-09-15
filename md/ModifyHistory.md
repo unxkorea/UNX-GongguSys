@@ -6,6 +6,19 @@
 
 [ 요청사항 ]
 
+## [Railway 전환 2단계] 관리자 개별 계정(ID/PW) + 역할·파트 부여
+현재 `settings.json`의 단일 공용 비밀번호 하나로 진입. 관리자 개별 ID/PW 로그인으로 전환.
+- `admin` / `staff` 두 역할. admin은 모든 공동구매 파트 접근 가능.
+- 공동구매 파트(영업 / CS / 정산 등)를 admin이 각 staff에게 부여. **중복 부여 가능**. 파트 목록은 admin이 추가/수정 가능해야 함.
+- 파트 정보는 추후 대시보드 알림(파트별 알림 라우팅)에 사용 예정 — 이번엔 데이터 구조만 준비.
+
+## [Railway 전환 3단계] 활동 로그 공통 모듈 — 접속/CRUD/에러 전부 기록 + 관리자 트래킹 UI
+admin/staff 각 계정이 로그인 후 접속한 메뉴, 수행한 CRUD, 발생한 에러를 **모두** 로그로 저장. 관리자가 UI에서 계정별·기간별·유형별로 추적 가능. 로깅은 공통 모듈로 만들어 server.js·매크로(index.js/checkReplies.js)·cron 어디서든 같은 방식으로 호출.
+
+## [Railway 전환 4단계] 파일 저장소 — 이미지 + PDF/Word 등 문서, 관리자 전용 접근
+추후 이미지 외 PDF·Word 등 문서 파일 업로드 예정. 관리자 페이지이므로 로그인한 관리자만 접근 가능해야 하고 보안이 중요. 현재 방식(Supabase Storage 공개 버킷 + `assets/` 3역할 혼재)은 폐기. 기존 `[ 요청사항 ]`의 "제안서 이미지 경로 정리" 건은 이 단계에 흡수.
+
+
 ## 제안서 이미지 경로 정리 — Storage 단일 원본 + temp 캐시
 인포크 제안서 발송 시 Playwright `setInputFiles`에 넣는 이미지 경로 해석 로직([src/proposal.js](src/proposal.js))을 정리. 현재 `assets/` 폴더가 (1)레거시 (2)UI 업로드 임시저장 (3)제안서 발송 캐시 3역할을 겸해 "신뢰 원본"이 모호함.
 
@@ -27,7 +40,56 @@
 
 [ 실행계획 ]
 
+### [Railway 전환 2단계] 개별 계정 + 역할·파트 — 실행계획
+1. **스키마**: `employees`에 `login_id text unique`, `password_hash text`, `role text check(role in ('admin','staff')) default 'staff'`, `active bool default true`, `last_login_at timestamptz` 추가. 신규 `parts(id, code unique, name, sort_order, active)`(초기값: 영업/CS/정산), `employee_parts(employee_id, part_id, primary key(employee_id, part_id))` M:N — 중복 부여는 이 테이블 행 수로 표현. admin은 행 없이도 전 파트 접근(코드에서 판단).
+2. **인증**: `bcrypt`, `express-rate-limit` 추가. `POST /api/login`이 `{loginId, password}` 수신 → 해시 비교 → 세션에 `{employeeId, loginId, role}`만 저장. 로그인 라우트에 rate limit(IP당 10회/15분). 세션 시크릿은 `SESSION_SECRET` env 우선(없으면 기존 랜덤 생성 유지).
+3. **부트스트랩**: 활성 계정 0개일 때 `ADMIN_INIT_ID`/`ADMIN_INIT_PW` env로 최초 admin 자동 생성. 인증 on/off 판정을 "adminPassword 존재"에서 "활성 계정 존재"로 변경, 로컬 개발용 `AUTH_DISABLED=true` 우회 추가. 전환기에는 `settings.adminPassword` 로그인도 병행 허용 → 계정 확인 후 제거(별도 마무리 커밋).
+4. **권한 미들웨어** `src/auth/guard.js`: `requireLogin`, `requireRole('admin')`, `requirePart('정산')`(admin 통과). 우선 admin 전용으로 잠글 곳: 계정·파트 관리, 설정 변경, 3단계 로그 조회, 4단계 파일 삭제.
+5. **UI**: [public/login.html](../public/login.html)에 ID 입력칸. 설정 탭에 "계정 관리" 서브탭(admin 전용) — 직원 목록에 login_id/역할/활성/파트 체크박스(다중), 비밀번호 초기화, 파트 목록 관리(추가/이름 변경/비활성). 헤더에 로그인한 사람 이름·역할 표시 + 로그아웃.
+6. **알림 대비**: `notifications(id, part_id null, employee_id null, type, title, body, link, read_at, created_at)` 테이블 정의만 schema에 포함(사용 코드는 추후 요청 시).
+- 산출물: `scripts/schema.pg.sql`, `src/repo/employeesRepo.js`(확장), `src/repo/partsRepo.js`, `src/auth/guard.js`, `server.js`, `public/login.html`, `views/pages/settings.ejs` + `public/js/accounts.js`, CLAUDE.md 갱신.
+
+### [Railway 전환 3단계] 활동 로그 공통 모듈 — 실행계획
+1. **테이블** `activity_logs(id bigserial, at timestamptz, level text('info'|'warn'|'error'), source text('web'|'macro'|'cron'|'system'), employee_id int null, login_id text null, action text, method text, path text, target_type text, target_id text, detail jsonb, status int, duration_ms int, ip text, user_agent text, request_id text, error_message text, error_stack text)`. 인덱스: `(at desc)`, `(employee_id, at desc)`, `(level, at desc)`, `(action, at desc)`.
+2. **공통 모듈** `src/logger/audit.js` (server.js·index.js·checkReplies.js·cron 공용):
+   - `audit.info/warn/error({...})` — 어디서든 호출. 내부 큐에 쌓아 1초 또는 50건 단위 배치 insert(요청 지연 없음). insert 실패 시 콘솔 폴백, **절대 throw 안 함**.
+   - 민감값 자동 마스킹: `password`, `appPassword`, `app_password`, `token`, `secret`, `authorization` 키는 detail에 `***`로.
+   - 자식 프로세스(매크로)는 `EMPLOYEE_ID`/`LOGIN_ID` env를 server.js가 spawn 시 주입 → `source='macro'`로 누가 트리거했는지 귀속. cron 실행은 `source='cron'`.
+3. **Express 자동 수집** `src/logger/middleware.js`:
+   - 요청 ID 부여 → 페이지 GET(`UI_PAGES` 경로)은 `action='page.view'`, API `POST/PUT/PATCH/DELETE`는 `action='<리소스>.<동작>'`(예: `products.update`, `influencers.delete`), 응답 status·duration 기록. 조회성 GET API는 기본 제외(옵션으로 포함 가능).
+   - 로그인 성공/실패/로그아웃, 발송 시작/중지, 답장확인 실행은 명시 호출로 기록.
+   - 에러 핸들러 미들웨어: 4xx/5xx와 throw된 예외를 `level='error'` + stack 저장. 프로세스 레벨 `uncaughtException`/`unhandledRejection`도 기록 후 종료.
+4. **보관 정책**: node-cron 매일 04:00에 `LOG_RETENTION_DAYS`(기본 180) 초과분 삭제. error는 365일.
+5. **UI**: 설정 탭 "활동 로그" 서브탭(admin 전용) — 필터(직원, 기간, level, source, action 검색), 페이지네이션(50건), 행 클릭 시 detail/stack 펼침, CSV 내보내기. API: `GET /api/logs?…`(admin).
+- 산출물: `src/logger/audit.js`, `src/logger/middleware.js`, `src/repo/activityLogsRepo.js`, `server.js`, `src/index.js`·`src/checkReplies.js`(audit 호출 추가), `views/pages/settings.ejs` + `public/js/logs.js`, CLAUDE.md 갱신.
+
+### [Railway 전환 4단계] 파일 저장소 — 실행계획
+1. **저장 구조**: 메타는 Postgres, 본체는 **비공개** 객체 저장소. 어댑터 `src/storage/index.js`가 `put(key, buf, mime) / getStream(key) / delete(key) / presign(key, ttl)`만 노출하고 구현체는 `STORAGE_DRIVER` env로 선택: `s3`(Railway Buckets 또는 Cloudflare R2, `@aws-sdk/client-s3`) / `volume`(Railway Volume 경로, 로컬 개발 기본). 접근 키는 Railway Variables에만.
+2. **테이블** `files(id uuid pk, kind text('product_photo'|'signature'|'document'), original_name, mime, size, sha256, storage_key, width, height, thumb_key, linked_type, linked_id, uploaded_by int, created_at, deleted_at)`. `product_photos.url`·`email_accounts.signature_image_url`은 `/api/files/<uuid>` 상대경로로 치환(UI 변경 최소화). 저장 키는 `<kind>/<yyyy>/<mm>/<uuid>.<ext>` — 원본 파일명은 DB에만.
+3. **업로드** `POST /api/files`(로그인 필수): multer memoryStorage(파일당 20MB, 최대 10개) → 확장자 허용목록(`jpg jpeg png webp gif pdf doc docx xls xlsx ppt pptx`) + `file-type` 매직넘버 검사 이중 확인 → 이미지는 `sharp`로 재인코딩(EXIF 제거, 긴 변 1600px, 썸네일 320px) → sha256 중복이면 기존 행 재사용 → 어댑터 `put` → `files` insert. 기존 `/api/products/upload`는 이 경로를 호출하도록 내부 교체.
+4. **다운로드** `GET /api/files/:id`(로그인 필수): DB 메타 조회 → 스트리밍. 이미지는 `inline` + `Cache-Control: private, max-age=86400` + ETag, 문서는 `Content-Disposition: attachment` + `X-Content-Type-Options: nosniff`. 삭제는 admin 전용 soft delete 후 야간 cron이 객체 실제 제거. 다운로드·삭제는 3단계 audit에 `files.download`/`files.delete`로 기록.
+5. **공개 예외**: 추천 카탈로그 API(1단계 6번)가 응답 시 해당 제품의 `product_photo`만 `presign(key, 10분)` URL로 내려줌. 문서류는 어떤 비로그인 경로도 없음.
+6. **발송 경로**: [src/proposal.js](../src/proposal.js) `resolvePhotosToLocal`을 "files → 임시파일 → setInputFiles"로 교체(`assets/` basename 빠른 경로 삭제 = 기존 요청 "제안서 이미지 경로 정리" 해소). [src/emailSender.js](../src/emailSender.js)는 URL 대신 Buffer `cid` 첨부.
+7. **이관** `scripts/migratePhotosToFiles.js`: `product_photos.url`·`signature_image_url`의 Supabase 공개 URL 122개 다운로드 → 3번 파이프라인으로 저장 → url 치환. 완료 후 `assets/` 폴더·`scripts/uploadAssets.js`·`cleanupOrphanPhotos.js` 제거, `express.static('/assets')` 제거.
+- 산출물: `src/storage/*`, `src/repo/filesRepo.js`, `server.js`, `src/proposal.js`, `src/emailSender.js`, `scripts/migratePhotosToFiles.js`, 설정 탭 "파일" 서브탭(목록·검색·삭제, admin), CLAUDE.md 갱신.
+
+**단계 순서 근거**: 1(DB) 없이는 나머지 테이블을 만들 곳이 없음 → 2(계정)가 있어야 3(로그)의 employee_id와 4(파일)의 접근 통제가 성립 → 3을 4보다 앞세워 파일 접근 이력을 처음부터 남김. 각 단계는 독립 커밋·독립 "작업시작"으로 진행.
+
+
 [ 작업완료 ]
+## [Railway 전환 1단계] Supabase → Railway Postgres DB 이관 (26.09.15)
+메인 DB를 Supabase에서 Railway Postgres로 이관. 코드는 supabase-js 쿼리 빌더를 `pg` 직접 SQL로 전면 교체하고, 데이터는 id 보존 이관 후 검증까지 완료. **사진 파일 본체만 4단계 전까지 Supabase Storage에 남는다.**
+- **DB 레이어 [src/db.js](../src/db.js)**: `pg` Pool 싱글톤 + `query/one/withTx/insertMany/isUniqueViolation`. `DATABASE_URL` 하나로 접속(Railway Variables=내부 주소, 로컬 .env=`DATABASE_PUBLIC_URL` 값). 타입 파서로 `date`→`'YYYY-MM-DD'`, `timestamptz`→ISO 문자열, `int8`→number 고정해 PostgREST 시절 응답 형태를 그대로 유지(리드 날짜가 타임존만큼 하루 밀리는 문제 방지).
+- **repo 11개** `*Supabase()` → `*Pg()` 재작성. 함수 시그니처·반환 형태 동일 → server.js/index.js 무변경. `require('../db')`는 함수 안에서 지연 로드(JSON 모드에서 DATABASE_URL 없어도 기동). 주간 카운터는 기존 plpgsql 함수 `increment_weekly_count`/`adjust_weekly_count`를 `select`로 호출. 제조사 productCount는 SQL 서브쿼리로 집계(제품 전체 로드 제거). 문구 고정은 `for update` 잠금 트랜잭션.
+- **플래그 개명 [config.js](../config.js)**: `USE_SUPABASE` → `DB_MODE`(`pg`|`json`) + `USE_DB` getter. 구 `USE_SUPABASE=false`도 json으로 인식(하위 호환 별칭 유지).
+- **카페24 [src/cafe24.js](../src/cafe24.js)**: 토큰 저장을 `insert ... on conflict (mall_id) do update`로 교체.
+- **공개 카탈로그**: 브라우저가 anon 키로 Supabase RPC를 직접 부르던 구조 폐기. [server.js](../server.js)에 인증 면제 `GET /api/public/catalog/:code`(CORS `*`, 404=미존재) 추가, `catalogsRepo.getPublicByCode()`가 DB 모드는 SQL 함수 `get_catalog_by_code`, JSON 모드는 제품 조립으로 응답(JSON 모드에서도 공개 페이지 동작). [public/recommend](../public/recommend)는 supabase-js CDN·anon 키 제거, `config.js`의 `CATALOG_API_BASE`(빈값=같은 도메인, Vercel 분리 배포 시 Railway 도메인)로 fetch.
+- **스키마 [scripts/schema.pg.sql](../scripts/schema.pg.sql)**: schema.sql에서 RLS·`grant to anon`·`security definer`만 제거. `npm run db:schema`(applySchemaPg.js, 단일 트랜잭션·멱등)로 적용. 이후 스키마 변경은 이 파일 기준.
+- **이관 [scripts/migrateSupabaseToPg.js](../scripts/migrateSupabaseToPg.js)** (`npm run db:migrate`): FK 순서 16개 테이블, 대상 컬럼 교집합만 insert, id 보존, 시퀀스 `setval`. 기본=대상 비어있을 때만, `--force`=truncate 후 재삽입, `--dry-run`. **[scripts/verifyPgMigration.js](../scripts/verifyPgMigration.js)** (`npm run db:verify`): 건수 비교·FK 고아·시퀀스. 실행 결과: 16개 테이블 전부 건수 일치(replies 23,113 / sent_log 4,621 / reply_runs 1,021 / products 101 …), 고아 0, 시퀀스 OK.
+- **검증**: 실제 DB로 repo 전 함수 호출(쓰기는 롤백/정리), pg 모드 서버 로그인 후 `/api/*` 전 목록 라우트 200, 공개 카탈로그·추천 페이지 200. JSON 모드 기동도 확인.
+- **사진 업로드는 임시로 Supabase Storage 유지** — [src/legacy/supabaseStorage.js](../src/legacy/supabaseStorage.js)에 격리. Railway 컨테이너 디스크에 저장하면 재배포 시 유실되기 때문. 따라서 `@supabase/supabase-js`와 `.env`/Railway Variables의 `SUPABASE_URL`·`SUPABASE_SERVICE_ROLE_KEY`는 4단계까지 유지, **Supabase 프로젝트 삭제 금지**.
+- **컷오버 절차(배포 시 수행)**: ① Railway 앱 Variables에 `DATABASE_URL=${{Postgres.DATABASE_URL}}` 확인 ② 발송·인포크 확인이 도는 중이 아닐 때 로컬에서 `npm run db:migrate -- --force` 한 번 더(이관 이후 Supabase에 쌓인 cron 결과·발송 로그 동기화) → `npm run db:verify` ③ git push → Railway 재배포 ④ UI 접속·dry-run 1건 확인 ⑤ Postgres 서비스 TCP Proxy 끄기(선택). 이후 Supabase는 Storage 용도로만 남는다.
+- 참고용으로 남긴 Supabase 시절 스크립트(`schema.sql`, `migrateJsonToSupabase.js`, `test*Repo.js`, `uploadAssets.js`, `cleanupOrphanPhotos.js` 등)는 현재 실행 불가 — 4단계에서 정리.
 ## Railway 전체 이관 — 인포크 발송까지 Railway에서 (headless 크롬) (26.09.15)
 로컬 PC를 24시간 켜둬야 하는 제약 해제가 목표. 메일 발송(nodemailer)은 이미 Railway에서 되고 있었고, 막혀 있던 건 인포크 발송의 Playwright 크롬이라 **빌드에 크롬을 포함**시키고 **서버에선 headless로 강제**되도록 정리. 로컬은 지금처럼 창 띄우고 발송하는 방식 그대로 유지.
 - **신규 [Dockerfile](../Dockerfile)**: `node:20-bookworm-slim` + `npm ci --omit=dev` + `npx playwright install --with-deps chromium`.

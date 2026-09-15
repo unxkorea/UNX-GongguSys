@@ -1,10 +1,12 @@
 // [요청] 자주 사용하는 문구 — 직원별 추가/복사 탭 신설 (dual-mode repo)
+// [요청] Railway 전환 1단계 — Supabase 구현을 pg(SQL) 구현으로 교체
 //   phrases: 직원별 자주 쓰는 문구(메모). employee_id로 employees 참조.
 //   list(employeeId?) / 반환 구조: { id, employeeId, title, content, sortOrder, createdAt }
 const fs = require('fs');
 const path = require('path');
 const config = require('../../config');
-const { supabase } = require('../db');
+
+function db() { return require('../db'); }
 
 const PHRASES_JSON = path.resolve(__dirname, '..', '..', 'phrases.json');
 
@@ -39,6 +41,12 @@ function validate(row, { requireEmployee = true } = {}) {
   if (!row.content) {
     const e = new Error('CONTENT_REQUIRED'); e.code = 'CONTENT_REQUIRED'; throw e;
   }
+}
+function notFoundError() {
+  const e = new Error('NOT_FOUND'); e.code = 'NOT_FOUND'; return e;
+}
+function pinLimitError() {
+  const e = new Error('PIN_LIMIT'); e.code = 'PIN_LIMIT'; return e;
 }
 
 // ─── JSON 구현 ───
@@ -84,7 +92,7 @@ async function updateOneJson(id, payload) {
   const list = raw.phrases || [];
   const numId = Number(id);
   const idx = list.findIndex(r => r.id === numId);
-  if (idx === -1) { const e = new Error('NOT_FOUND'); e.code = 'NOT_FOUND'; throw e; }
+  if (idx === -1) throw notFoundError();
   const row = normalizeIncoming(payload);
   // 수정 시 employee_id 변경은 허용하지 않음(소속 고정) — content만 필수 검증.
   validate(row, { requireEmployee: false });
@@ -111,12 +119,12 @@ async function setPinnedJson(id, pinned) {
   const list = raw.phrases || [];
   const numId = Number(id);
   const idx = list.findIndex(r => r.id === numId);
-  if (idx === -1) { const e = new Error('NOT_FOUND'); e.code = 'NOT_FOUND'; throw e; }
+  if (idx === -1) throw notFoundError();
   const target = list[idx];
   if (pinned) {
     const pinnedCount = list.filter(r =>
       Number(r.employee_id) === Number(target.employee_id) && r.pinned && r.id !== numId).length;
-    if (pinnedCount >= PIN_LIMIT) { const e = new Error('PIN_LIMIT'); e.code = 'PIN_LIMIT'; throw e; }
+    if (pinnedCount >= PIN_LIMIT) throw pinLimitError();
   }
   list[idx] = { ...target, pinned: !!pinned };
   raw.phrases = list;
@@ -124,88 +132,83 @@ async function setPinnedJson(id, pinned) {
   return rowToPhrase(list[idx]);
 }
 
-// ─── Supabase 구현 ───
-async function listSupabase(employeeId) {
-  let q = supabase.from('phrases').select('*');
-  if (employeeId) q = q.eq('employee_id', Number(employeeId));
-  const { data, error } = await q
-    // [요청] 고정(pinned) 우선 → sort_order → created_at 순.
-    .order('pinned', { ascending: false })
-    .order('sort_order', { ascending: true })
-    .order('created_at', { ascending: true });
-  if (error) throw error;
-  return (data || []).map(rowToPhrase);
+// ─── Postgres 구현 ───
+async function listPg(employeeId) {
+  const params = [];
+  let where = '';
+  if (employeeId) { params.push(Number(employeeId)); where = 'where employee_id = $1'; }
+  // [요청] 고정(pinned) 우선 → sort_order → created_at 순.
+  const { rows } = await db().query(
+    `select * from phrases ${where} order by pinned desc, sort_order asc, created_at asc`, params
+  );
+  return rows.map(rowToPhrase);
 }
 
-async function insertOneSupabase(payload) {
+async function insertOnePg(payload) {
   const row = normalizeIncoming(payload);
   validate(row);
-  const { data, error } = await supabase.from('phrases').insert(row).select().single();
-  if (error) throw error;
+  const data = await db().one(
+    `insert into phrases (employee_id, title, content, sort_order)
+     values ($1, $2, $3, $4) returning *`,
+    [row.employee_id, row.title, row.content, row.sort_order]
+  );
   return rowToPhrase(data);
 }
 
-async function updateOneSupabase(id, payload) {
+async function updateOnePg(id, payload) {
   const row = normalizeIncoming(payload);
   validate(row, { requireEmployee: false });
   // employee_id는 갱신 대상에서 제외(소속 고정).
-  const { data, error } = await supabase
-    .from('phrases')
-    .update({ title: row.title, content: row.content })
-    .eq('id', Number(id)).select().single();
-  if (error) {
-    if (error.code === 'PGRST116') { const e = new Error('NOT_FOUND'); e.code = 'NOT_FOUND'; throw e; }
-    throw error;
-  }
-  return rowToPhrase(data);
+  const r = await db().query(
+    'update phrases set title = $1, content = $2 where id = $3 returning *',
+    [row.title, row.content, Number(id)]
+  );
+  if (!r.rowCount) throw notFoundError();
+  return rowToPhrase(r.rows[0]);
 }
 
-async function removeOneSupabase(id) {
-  const { error } = await supabase.from('phrases').delete().eq('id', Number(id));
-  if (error) throw error;
+async function removeOnePg(id) {
+  await db().query('delete from phrases where id = $1', [Number(id)]);
 }
 
 // [요청] 직원별 최대 3개 최상단 고정 — 핀 토글. 켤 때만 직원당 3개 제한 검증.
-async function setPinnedSupabase(id, pinned) {
-  // 대상 문구의 employee_id 조회 (제한 카운트 기준).
-  const { data: target, error: getErr } = await supabase
-    .from('phrases').select('id, employee_id').eq('id', Number(id)).single();
-  if (getErr) {
-    if (getErr.code === 'PGRST116') { const e = new Error('NOT_FOUND'); e.code = 'NOT_FOUND'; throw e; }
-    throw getErr;
-  }
-  if (pinned) {
-    const { count, error: cntErr } = await supabase
-      .from('phrases')
-      .select('id', { count: 'exact', head: true })
-      .eq('employee_id', target.employee_id)
-      .eq('pinned', true)
-      .neq('id', Number(id));
-    if (cntErr) throw cntErr;
-    if ((count || 0) >= PIN_LIMIT) { const e = new Error('PIN_LIMIT'); e.code = 'PIN_LIMIT'; throw e; }
-  }
-  const { data, error } = await supabase
-    .from('phrases').update({ pinned: !!pinned }).eq('id', Number(id)).select().single();
-  if (error) throw error;
-  return rowToPhrase(data);
+async function setPinnedPg(id, pinned) {
+  const numId = Number(id);
+  return db().withTx(async client => {
+    // 대상 문구의 employee_id 조회 (제한 카운트 기준). 동시 토글 경쟁 방지용 row lock.
+    const t = await client.query('select id, employee_id from phrases where id = $1 for update', [numId]);
+    const target = t.rows[0];
+    if (!target) throw notFoundError();
+    if (pinned) {
+      const c = await client.query(
+        `select count(*)::int as n from phrases
+          where employee_id = $1 and pinned = true and id <> $2`,
+        [target.employee_id, numId]
+      );
+      if ((c.rows[0].n || 0) >= PIN_LIMIT) throw pinLimitError();
+    }
+    const r = await client.query(
+      'update phrases set pinned = $1 where id = $2 returning *', [!!pinned, numId]);
+    return rowToPhrase(r.rows[0]);
+  });
 }
 
 // ─── 공용 API ───
 async function list(employeeId) {
-  return config.USE_SUPABASE ? listSupabase(employeeId) : listJson(employeeId);
+  return config.USE_DB ? listPg(employeeId) : listJson(employeeId);
 }
 async function insertOne(payload) {
-  return config.USE_SUPABASE ? insertOneSupabase(payload) : insertOneJson(payload);
+  return config.USE_DB ? insertOnePg(payload) : insertOneJson(payload);
 }
 async function updateOne(id, payload) {
-  return config.USE_SUPABASE ? updateOneSupabase(id, payload) : updateOneJson(id, payload);
+  return config.USE_DB ? updateOnePg(id, payload) : updateOneJson(id, payload);
 }
 async function removeOne(id) {
-  return config.USE_SUPABASE ? removeOneSupabase(id) : removeOneJson(id);
+  return config.USE_DB ? removeOnePg(id) : removeOneJson(id);
 }
 // [요청] 직원별 최대 3개 최상단 고정
 async function setPinned(id, pinned) {
-  return config.USE_SUPABASE ? setPinnedSupabase(id, pinned) : setPinnedJson(id, pinned);
+  return config.USE_DB ? setPinnedPg(id, pinned) : setPinnedJson(id, pinned);
 }
 
 module.exports = { list, insertOne, updateOne, removeOne, setPinned };

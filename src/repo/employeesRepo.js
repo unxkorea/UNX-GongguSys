@@ -1,10 +1,12 @@
 // [요청] 자주 사용하는 문구 — 직원별 추가/복사 탭 신설 (dual-mode repo)
+// [요청] Railway 전환 1단계 — Supabase 구현을 pg(SQL) 구현으로 교체
 //   employees: 독립 범용 직원 테이블. 지금은 phrases가 참조하지만 향후 다른 테이블에서도 재사용 예정.
 //   list() / getById(id) 반환 구조: { id, name, sortOrder, createdAt }
 const fs = require('fs');
 const path = require('path');
 const config = require('../../config');
-const { supabase } = require('../db');
+
+function db() { return require('../db'); }
 
 const EMPLOYEES_JSON = path.resolve(__dirname, '..', '..', 'employees.json');
 const PHRASES_JSON = path.resolve(__dirname, '..', '..', 'phrases.json');
@@ -23,6 +25,13 @@ function normalizeIncoming(payload) {
     name: (payload.name || '').toString().trim(),
     sort_order: Number.isInteger(payload.sortOrder) ? payload.sortOrder : 0,
   };
+}
+
+function requireName(row) {
+  if (!row.name) { const e = new Error('NAME_REQUIRED'); e.code = 'NAME_REQUIRED'; throw e; }
+}
+function notFoundError() {
+  const e = new Error('NOT_FOUND'); e.code = 'NOT_FOUND'; return e;
 }
 
 // ─── JSON 구현 ───
@@ -50,7 +59,7 @@ async function insertOneJson(payload) {
   const raw = jsonLoadRaw();
   const list = raw.employees || [];
   const row = normalizeIncoming(payload);
-  if (!row.name) { const e = new Error('NAME_REQUIRED'); e.code = 'NAME_REQUIRED'; throw e; }
+  requireName(row);
   const nextId = list.reduce((m, x) => Math.max(m, x.id || 0), 0) + 1;
   const newRow = { id: nextId, ...row, created_at: new Date().toISOString() };
   list.push(newRow);
@@ -64,16 +73,16 @@ async function updateOneJson(id, payload) {
   const list = raw.employees || [];
   const numId = Number(id);
   const idx = list.findIndex(r => r.id === numId);
-  if (idx === -1) { const e = new Error('NOT_FOUND'); e.code = 'NOT_FOUND'; throw e; }
+  if (idx === -1) throw notFoundError();
   const row = normalizeIncoming(payload);
-  if (!row.name) { const e = new Error('NAME_REQUIRED'); e.code = 'NAME_REQUIRED'; throw e; }
+  requireName(row);
   list[idx] = { ...list[idx], ...row };
   raw.employees = list;
   jsonSave(list);
   return rowToEmployee(list[idx]);
 }
 
-// JSON 모드는 FK cascade가 없으므로 해당 직원의 phrases도 직접 정리해 Supabase on delete cascade를 흉내낸다.
+// JSON 모드는 FK cascade가 없으므로 해당 직원의 phrases도 직접 정리해 DB의 on delete cascade를 흉내낸다.
 function cascadeDeletePhrasesJson(employeeId) {
   try {
     const raw = JSON.parse(fs.readFileSync(PHRASES_JSON, 'utf-8'));
@@ -97,55 +106,50 @@ async function removeOneJson(id) {
   cascadeDeletePhrasesJson(numId);
 }
 
-// ─── Supabase 구현 ───
-async function listSupabase() {
-  const { data, error } = await supabase
-    .from('employees')
-    .select('*')
-    .order('sort_order', { ascending: true })
-    .order('id', { ascending: true });
-  if (error) throw error;
-  return (data || []).map(rowToEmployee);
+// ─── Postgres 구현 ───
+async function listPg() {
+  const { rows } = await db().query('select * from employees order by sort_order asc, id asc');
+  return rows.map(rowToEmployee);
 }
 
-async function insertOneSupabase(payload) {
+async function insertOnePg(payload) {
   const row = normalizeIncoming(payload);
-  if (!row.name) { const e = new Error('NAME_REQUIRED'); e.code = 'NAME_REQUIRED'; throw e; }
-  const { data, error } = await supabase.from('employees').insert(row).select().single();
-  if (error) throw error;
+  requireName(row);
+  const data = await db().one(
+    'insert into employees (name, sort_order) values ($1, $2) returning *',
+    [row.name, row.sort_order]
+  );
   return rowToEmployee(data);
 }
 
-async function updateOneSupabase(id, payload) {
+async function updateOnePg(id, payload) {
   const row = normalizeIncoming(payload);
-  if (!row.name) { const e = new Error('NAME_REQUIRED'); e.code = 'NAME_REQUIRED'; throw e; }
-  const { data, error } = await supabase
-    .from('employees').update(row).eq('id', Number(id)).select().single();
-  if (error) {
-    if (error.code === 'PGRST116') { const e = new Error('NOT_FOUND'); e.code = 'NOT_FOUND'; throw e; }
-    throw error;
-  }
-  return rowToEmployee(data);
+  requireName(row);
+  const r = await db().query(
+    'update employees set name = $1, sort_order = $2 where id = $3 returning *',
+    [row.name, row.sort_order, Number(id)]
+  );
+  if (!r.rowCount) throw notFoundError();
+  return rowToEmployee(r.rows[0]);
 }
 
-async function removeOneSupabase(id) {
+async function removeOnePg(id) {
   // phrases.employee_id 는 on delete cascade 이므로 자식 문구도 자동 삭제됨.
-  const { error } = await supabase.from('employees').delete().eq('id', Number(id));
-  if (error) throw error;
+  await db().query('delete from employees where id = $1', [Number(id)]);
 }
 
 // ─── 공용 API ───
 async function list() {
-  return config.USE_SUPABASE ? listSupabase() : listJson();
+  return config.USE_DB ? listPg() : listJson();
 }
 async function insertOne(payload) {
-  return config.USE_SUPABASE ? insertOneSupabase(payload) : insertOneJson(payload);
+  return config.USE_DB ? insertOnePg(payload) : insertOneJson(payload);
 }
 async function updateOne(id, payload) {
-  return config.USE_SUPABASE ? updateOneSupabase(id, payload) : updateOneJson(id, payload);
+  return config.USE_DB ? updateOnePg(id, payload) : updateOneJson(id, payload);
 }
 async function removeOne(id) {
-  return config.USE_SUPABASE ? removeOneSupabase(id) : removeOneJson(id);
+  return config.USE_DB ? removeOnePg(id) : removeOneJson(id);
 }
 
 module.exports = { list, insertOne, updateOne, removeOne };

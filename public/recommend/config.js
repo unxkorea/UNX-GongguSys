@@ -1,13 +1,11 @@
-// [요청] 추천 카탈로그 페이지 — Supabase 공개 키 설정
-// ⚠️ 여기 anon key만 들어가야 함. service_role key는 절대 금지.
-// anon key는 RLS + SECURITY DEFINER RPC로 보호되므로 공개해도 안전.
+// [요청] 추천 카탈로그 페이지 — 공개 API 주소 설정
+// [요청] Railway 전환 1단계 — Supabase anon 키 제거. 카탈로그는 관리 서버(server.js)의
+//   GET /api/public/catalog/:code 로 조회한다(인증 면제, 읽기 전용, CORS 허용).
 //
-// 1. Supabase Dashboard → Project Settings → API
-// 2. "Project URL" → SUPABASE_URL
-// 3. "Project API keys" 섹션의 "anon public" → SUPABASE_ANON_KEY
+// CATALOG_API_BASE:
+//   ''                              → 같은 도메인(관리 서버가 /recommend 를 직접 서빙할 때, 로컬 테스트 포함)
+//   'https://<railway-app-domain>'  → Vercel 등 다른 도메인에 분리 배포했을 때 관리 서버 주소(끝에 / 없이)
 //
-// Vercel에 배포할 때는 이 파일을 그대로 푸시 (env 변수 별도 설정 불필요).
-// 로컬에서 server.js로 테스트할 때는 http://localhost:3000/recommend/?c=<code>로 접근.
+// 로컬 테스트: http://localhost:3000/recommend/?c=<code>
 
-window.SUPABASE_URL = 'https://jejpnuzspprufbwwdvsl.supabase.co';
-window.SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImplanBudXpzcHBydWZid3dkdnNsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY4MzcxMTcsImV4cCI6MjA5MjQxMzExN30.TZiq-EQgGCOKZvmebgO_V7lQ4LkseX-6WgJYuaqpskg';
+window.CATALOG_API_BASE = '';
