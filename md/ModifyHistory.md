@@ -28,6 +28,19 @@
 [ 실행계획 ]
 
 [ 작업완료 ]
+## Railway 전체 이관 — 인포크 발송까지 Railway에서 (headless 크롬) (26.09.15)
+로컬 PC를 24시간 켜둬야 하는 제약 해제가 목표. 메일 발송(nodemailer)은 이미 Railway에서 되고 있었고, 막혀 있던 건 인포크 발송의 Playwright 크롬이라 **빌드에 크롬을 포함**시키고 **서버에선 headless로 강제**되도록 정리. 로컬은 지금처럼 창 띄우고 발송하는 방식 그대로 유지.
+- **신규 [Dockerfile](../Dockerfile)**: `node:20-bookworm-slim` + `npm ci --omit=dev` + `npx playwright install --with-deps chromium`.
+  - Playwright 공식 이미지(`mcr.microsoft.com/playwright:vX.Y.Z`)를 **일부러 쓰지 않음** — 그 이미지는 브라우저 리비전이 태그 버전에 고정이라 package-lock의 playwright 버전(현재 **1.59.1**)과 어긋나면 **배포는 성공하고 발송 시점에만** `Executable doesn't exist`로 죽는다(작업 중 실제로 v1.48.0 이미지로 잡았다가 발견해 교체). 현재 방식은 설치된 playwright가 요구하는 브라우저를 그대로 받아 버전 드리프트가 없음.
+  - `ENV HEADLESS_MODE=true` — **git에 커밋된 `settings.json`의 `headless:false`가 서버까지 따라가 헤드풀 크롬을 띄우려다 죽는 문제**를 막는다. Railway Variables에 같은 키를 넣으면 그 값이 우선하므로 대시보드에서 언제든 덮어쓸 수 있음(별도 수동 설정은 불필요).
+- **신규 [.dockerignore](../.dockerignore)**: `node_modules`(Windows 바이너리)·`.env`(로컬 빌드 시 이미지에 시크릿 박히는 것 방지)·`logs`/`screenshots`/`assets` 제외.
+- **[railway.json](../railway.json)**: `builder: "DOCKERFILE"` + `dockerfilePath`. (env는 railway.json에 넣어도 적용되지 않아 Dockerfile ENV로 옮김)
+- **[config.js](../config.js)** `HEADLESS` getter 우선순위: ① env `HEADLESS_MODE` → ② `settings.json`의 `headless` → ③ 기본값 `false`. 로컬/서버 이중 운영이 한 코드로 가능.
+- **로그인 안정성**: 답장확인에서 해결했던 패턴(`networkidle`→`load` 대기, `waitForURL('**/admin/**')`, `isLoggedIn()` 오판 방지, `clearCacheAndReload`)은 [src/auth.js](../src/auth.js)에 이미 들어 있고 인포크 발송([src/index.js](../src/index.js))도 같은 `login()`을 쓰므로 **추가 작업 없이 동일 혜택**. 별도 중복 구현 안 함.
+- **로그**: server.js가 자식 프로세스 stdout/stderr를 `macroLogs`/`replyLogs`로 캡처하는 구조가 이미 있어 UI 실시간 로그 + Railway Deploy Logs 양쪽에 그대로 뜸(변경 없음).
+- 검증: `config.HEADLESS` 3케이스(로컬=false / `HEADLESS_MODE=true`=true / Variables로 false 덮어쓰기=false) 실행 확인, `node --check` 통과, `resolvePhotosToLocal()`이 `os.tmpdir()` 사용이라 리눅스 경로 이슈 없음 확인. 실제 headless 발송은 Railway 재배포 후 확인 요망.
+- **남은 리스크(운영 중 관찰 필요)**: 인포크 입장에서 발신 IP가 해외 클라우드로 바뀐다. 로그인 차단·추가 인증·계정 제재가 발생하면 해당 발송만 로컬에서 돌리는 폴백이 여전히 가능(같은 코드·같은 DB). 첫 1~2주는 발송 후 로그 확인 권장.
+- **추후**: UI에서 발송 위치(로컬/Railway) 명시 선택, 발송 자동 스케줄(cron), 로그인 실패 누적 시 알림.
 ## 카페24(언엑스샵) 제품 연동 — Admin API로 제품 불러오기 (26.09.08)
 카페24 쇼핑몰 '언엑스샵'(몰ID unx2026)의 제품을 Cafe24 Admin API로 불러와 제품 목록에 추가. OAuth 인증 1회 → 제품 탭 "🛒 카페24 불러오기" 버튼 → 체크박스 선택 → 가져오기. 재가져오기 시 `cafe24_product_no` 매칭으로 중복 생성 없이 제품명·사진만 갱신(관리명·제안문구 등 수기 입력 보존).
 - **신규 [src/cafe24.js](../src/cafe24.js)**: OAuth(인증 URL 생성/코드 교환/refresh 자동 갱신, 만료 60초 전 선제 갱신) + 제품 목록 조회(limit=100 페이지네이션, `embed=additionalimages`). Node 20 전역 fetch 사용(의존성 추가 없음). 토큰은 **Supabase `cafe24_tokens`에 저장** — Railway 파일시스템이 재배포 시 초기화되므로 파일 저장 불가. JSON 롤백 모드는 미지원(가드).
