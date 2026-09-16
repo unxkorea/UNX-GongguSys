@@ -35,7 +35,6 @@ function getAuthUrl(redirectUri, state) {
     scope: SCOPES.join(' '),
     access_type: 'offline',   // refresh token 수령
     prompt: 'consent',        // 재연결 시에도 refresh token을 다시 내려주도록 강제
-    include_granted_scopes: 'true',
     state,
   });
   return `${AUTH_URL}?${q.toString()}`;
