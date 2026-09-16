@@ -21,7 +21,8 @@
 </head>
 <body>
   <%- include('partials/header') %>
-  <%- include('partials/tabs', { active: active, activeSub: activeSub }) %>
+  <%# [요청] 인포크/메일 제안 담당자용 전용 URL — portal:true(/portal/*)면 tabs.ejs가 전체 GNB 대신 3탭만 렌더 -%>
+  <%- include('partials/tabs', { active: active, activeSub: activeSub, portal: typeof portal !== 'undefined' && portal }) %>
 
   <div class="content">
     <%- include('pages/' + page) %>

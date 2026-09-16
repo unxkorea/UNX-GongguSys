@@ -86,7 +86,8 @@ function authRequired(req, res, next) {
   if (req.path.startsWith('/api/')) {
     return res.status(401).json({ error: 'auth_required' });
   }
-  return res.redirect('/login');
+  // [요청] 인포크/메일 제안 담당자용 전용 URL — 로그인 후 원래 요청한 경로(/portal/* 등)로 돌아오도록 전달
+  return res.redirect('/login?redirect=' + encodeURIComponent(req.originalUrl));
 }
 
 // 인증 없이 접근 가능: 로그인 페이지·로그인 API·정적 로그인 리소스
@@ -235,6 +236,15 @@ UI_PAGES.forEach(([route, opts]) => {
 });
 // 진입점 — 기존 '/' 는 제품 목록으로
 app.get('/', (req, res) => res.redirect('/products'));
+
+// [요청] 인포크/메일 제안 담당자용 전용 URL — 위 3개(/influencers,/run,/replies)와 완전히 같은 화면을
+//   /portal/* 로도 열어준다(뷰·API 신규 없음, portal:true만 추가). 관리자가 계속 바꿀 다른 탭들과 무관하게
+//   담당자에게 고정 링크(/portal/run) 하나만 주기 위함 — 기존 UI_PAGES 라우트·tabs.ejs 목록은 무변경.
+const PORTAL_SUBTABS = ['influencers', 'run', 'replies'];
+UI_PAGES.filter(([route]) => PORTAL_SUBTABS.includes(route.slice(1))).forEach(([route, opts]) => {
+  app.get('/portal' + route, (req, res) => res.render('layout', { ...opts, portal: true }));
+});
+app.get('/portal', (req, res) => res.redirect('/portal/run'));
 
 // 이미지 업로드 설정
 const storage = multer.diskStorage({

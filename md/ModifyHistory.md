@@ -62,6 +62,14 @@ admin/staff 각 계정이 로그인 후 접속한 메뉴, 수행한 CRUD, 발생
 
 
 [ 작업완료 ]
+## 인포크/메일 제안 담당자용 전용 URL 신설 — 인플루언서/발송/답장확인 3탭만 보이는 진입 링크 (26.09.16)
+관리 UI 나머지 부분(제품 관리·리드 관리·제품추천생성 등)은 계속 바뀔 예정인데, 인포크/메일 제안 실무(인플루언서 · 인포크/메일 발송 · 인포크 답장 확인)는 담당자가 지속적으로 써야 하는 기능이라 고정 링크 하나만 전달하기 위해 전용 URL 신설. 기존 `/influencers` `/run` `/replies`와 전체 GNB는 완전히 무변경.
+- **[server.js](../server.js)**: 기존 `UI_PAGES` 중 `influencers`/`run`/`replies` 3개를 그대로 재사용해 `/portal/influencers` `/portal/run` `/portal/replies`를 추가로 열어줌(`{...opts, portal: true}`만 덧붙임, 뷰·API 신규 없음). `/portal` 인덱스는 `/portal/run`으로 리다이렉트. 미인증 시 `/login`으로 보낼 때 `?redirect=<원래 경로>`를 붙여 로그인 후 원래 요청한 URL로 돌아오게 함.
+- **[views/layout.ejs](../views/layout.ejs)/[views/partials/tabs.ejs](../views/partials/tabs.ejs)**: `portal` 플래그가 true면 전체 GNB(제품 관리/인포크·메일 제안/리드 관리/제품추천생성/인스타분석/메모) 대신 기존 `SUBTABS.inpock` 3개(인플루언서/인포크·메일 발송/인포크 답장 확인)만 최상단 탭으로 렌더(href는 `/portal/*`). `portal`이 false/미지정이면 기존 로직 그대로(무변경 경로 보존).
+- **[public/login.html](../public/login.html)**: 로그인 성공 시 무조건 `/`로 이동하던 것을, 쿼리의 `redirect` 값이 같은 오리진의 상대경로(`/`로 시작, `//`·`://` 아님 — 오픈 리다이렉트 방지)일 때만 그 경로로 이동하도록 변경.
+- **담당자 계정**: 별도 계정 체계 신설 없음 — 사용자가 설정 탭 "계정 관리"에서 이 담당자용 로그인ID/PW를 직접 만들어 `/portal/run` 링크와 함께 전달하기로 함(권한 범위 축소는 이번 요청 밖).
+- **검증**: `node --check server.js` 통과. `DB_MODE=json` 로컬 서버로 `/portal/run`(200, 3탭 GNB만 렌더 확인) / `/portal`(302→`/portal/run`) / 기존 `/run`(200, 전체 GNB 그대로) 확인, 미인증 상태에서 `/portal/run` 접근 시 `Location: /login?redirect=%2Fportal%2Frun` 확인.
+
 ## [Railway 전환 2단계] 관리자 개별 계정(ID/PW) + 역할·파트 부여 (26.09.16)
 `settings.json`의 단일 공용 비밀번호 하나로 진입하던 구조를 관리자 개별 ID/PW 로그인으로 전환. 레거시 단일 비밀번호는 과도기 지원으로 계속 동작(둘 중 하나만 있어도 인증 필요).
 - **스키마 [scripts/schema.pg.sql](../scripts/schema.pg.sql)**: `employees`에 `login_id`(unique)/`password_hash`/`role`('admin'|'staff', check 제약)/`active`/`last_login_at` 추가. 신규 `parts`(공동구매 파트, 초기값 영업/CS/정산 3종 시드) + `employee_parts`(직원-파트 M:N — **중복 부여는 이 테이블 행 수로 표현**, admin은 행 없이도 전 파트 접근). `notifications`(파트별/직원별 알림) 테이블은 3단계 이후 사용 예정으로 정의만 미리 둠.

@@ -30,6 +30,15 @@
     <div class="err" id="err"></div>
   </form>
   <script>
+    // [요청] 인포크/메일 제안 담당자용 전용 URL — /portal/* 등 원래 요청한 경로로 로그인 후 되돌아가기.
+    //   같은 오리진의 상대경로가 아니면(오픈 리다이렉트 방지) 무시하고 기본값 '/'로.
+    function getSafeRedirect() {
+      try {
+        const r = new URLSearchParams(location.search).get('redirect');
+        if (r && r.startsWith('/') && !r.startsWith('//') && !r.includes('://')) return r;
+      } catch {}
+      return '/';
+    }
     async function submitLogin(e) {
       e.preventDefault();
       const loginId = document.getElementById('loginId').value.trim();
@@ -44,7 +53,7 @@
           body: JSON.stringify(body),
         });
         if (r.ok) {
-          location.href = '/';
+          location.href = getSafeRedirect();
           return false;
         }
         if (r.status === 429) {
