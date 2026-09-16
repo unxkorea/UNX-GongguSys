@@ -62,6 +62,17 @@ admin/staff 각 계정이 로그인 후 접속한 메뉴, 수행한 CRUD, 발생
 
 
 [ 작업완료 ]
+## /portal — 화면(레이아웃 포함) 완전 분리복제, 제품관리 시스템 개편 영향 차단 (26.09.16)
+제품관리 시스템 전체를 레이아웃부터 새로 갈아엎을 예정이라, 바로 아래 "인포크/메일 제안 담당자용 전용 URL" 건에서 만든 `/portal/*`(같은 `views/layout.ejs`/`tabs.ejs`/`app.css`/`util.js` 등 공유 자산을 쓰던 버전)은 그 개편에 함께 휩쓸리는 구조였음. 담당자가 계속 써야 하는 화면이라 이번 요청으로 **화면(레이아웃·CSS·페이지 JS) 자체를 완전히 독립된 스냅샷 사본**으로 교체 — 이전 요청의 얕은 구현을 대체.
+- **신규 [views/portal/layout.ejs](../views/portal/layout.ejs)**: 공유 `views/layout.ejs`/`partials/header`/`partials/tabs`를 전혀 include하지 않는 자체 HTML 뼈대(헤더+3탭 네비만). `/js/portal/*`·`/css/portal.css`만 참조.
+- **신규 `views/portal/pages/{influencers,run,replies}.ejs`·`views/portal/modals/{manualSend,dialog}.ejs`**: 기존 `views/pages/*.ejs`·`views/partials/modals/*.ejs`를 **지금 시점 내용 그대로 복사**(파일 상단에 스냅샷 사본임을 주석으로 명시). 원본을 고쳐도 자동 반영되지 않음 — 역으로 이 사본의 버그를 고치면 원본에도 수동 반영 필요.
+- **신규 `public/js/portal/{util,state,accounts,influencers,run,replies}.js`·`public/js/portal/init/{influencers,run,replies}.js`**: 기존 동명 파일을 그대로 스냅샷 복사. **`public/js/portal/nav.js`만 예외** — 공유 `nav.js`에서 이 3탭에 필요한 부분(답장 배지·로그인 사용자 표시·모달 ESC)만 추리고, 리드 마감 배지 등 무관한 로직은 제외 + 공유 `settings.js`에 있던 `doLogout()`을 이식(portal은 설정 탭을 안 쓰므로 로그아웃 수단이 없었음 — 헤더에 로그아웃 링크 추가).
+- **신규 [public/css/portal.css](../public/css/portal.css)**: `public/css/app.css` 스냅샷 복사.
+- **[server.js](../server.js)**: 이전의 "UI_PAGES 재사용 + `portal:true` 플래그" 방식을 제거하고, `res.render('portal/layout', {...})`로 `views/portal/pages/<name>.ejs`를 include하는 완전히 독립된 3개 라우트(`/portal/influencers` `/portal/run` `/portal/replies`, `/portal`→`/portal/run` 리다이렉트)로 교체. **API(`/api/influencers` `/api/accounts` `/api/run*` 등)·리포지토리·DB 스키마·세션 인증은 계속 공유** — 레이아웃/프론트 개편 범위로 판단해 분리 대상에서 제외.
+- **[views/layout.ejs](../views/layout.ejs)/[views/partials/tabs.ejs](../views/partials/tabs.ejs)**: 이전 요청에서 넣었던 `portal` 분기를 제거하고 원래 상태로 완전히 롤백(git diff 기준 순정 상태와 동일).
+- **트레이드오프(운영 시 주의)**: 화면은 이제 시스템 개편과 완전히 무관하지만, **API 엔드포인트·인증 로직·DB 스키마까지 바뀌면 `/portal`도 별도로 손봐야 함**. `public/login.html`은 계속 공유 — 로그인 페이지 자체도 개편 대상이 되면 별도 스냅샷 복제 필요(현재는 미포함).
+- **검증**: `node --check`로 `server.js` + 신규 JS 10개 전부 통과. `DB_MODE=json` 로컬 서버(포트 충돌 없는 새 포트로 재기동해 확인)로 `/portal` `/portal/influencers` `/portal/run` `/portal/replies` 200 확인, `/portal/run` 렌더 결과가 `/css/portal.css`·`/js/portal/*`만 로드하고 GNB 없이 3탭만 뜨는 것 확인, 정적 신규 파일 11개 전부 200, `/api/influencers`·`/api/accounts` 정상 응답(백엔드 공유 확인), 기존 `/run`은 여전히 `/css/app.css`·`/js/*`(공유본) 그대로 사용해 무변경 확인.
+
 ## 인포크/메일 제안 담당자용 전용 URL 신설 — 인플루언서/발송/답장확인 3탭만 보이는 진입 링크 (26.09.16)
 관리 UI 나머지 부분(제품 관리·리드 관리·제품추천생성 등)은 계속 바뀔 예정인데, 인포크/메일 제안 실무(인플루언서 · 인포크/메일 발송 · 인포크 답장 확인)는 담당자가 지속적으로 써야 하는 기능이라 고정 링크 하나만 전달하기 위해 전용 URL 신설. 기존 `/influencers` `/run` `/replies`와 전체 GNB는 완전히 무변경.
 - **[server.js](../server.js)**: 기존 `UI_PAGES` 중 `influencers`/`run`/`replies` 3개를 그대로 재사용해 `/portal/influencers` `/portal/run` `/portal/replies`를 추가로 열어줌(`{...opts, portal: true}`만 덧붙임, 뷰·API 신규 없음). `/portal` 인덱스는 `/portal/run`으로 리다이렉트. 미인증 시 `/login`으로 보낼 때 `?redirect=<원래 경로>`를 붙여 로그인 후 원래 요청한 URL로 돌아오게 함.

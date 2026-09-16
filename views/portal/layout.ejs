@@ -1,0 +1,59 @@
+<%#
+  [요청] /portal 분리복제 — 인포크/메일 제안 담당자 전용, 완전히 독립된 레이아웃.
+  공유 views/layout.ejs·partials/tabs·partials/header·public/css/app.css·public/js/util.js 등을
+  전혀 참조하지 않는다(이 파일과 views/portal/**·public/js/portal/**·public/css/portal.css 전부
+  지금 시점 스냅샷 사본) — 제품관리 시스템 전체 개편(레이아웃부터 전면 교체 예정)이 이 화면에
+  영향을 주지 않기 위함. API(/api/influencers 등)·세션 인증·DB는 계속 기존 서버와 공유한다.
+  res.render('portal/layout', { title, activeSub, page, scripts, modals })
+    title     : <title> 접두어
+    activeSub : influencers | run | replies (탭 하이라이트)
+    page      : views/portal/pages/<page>.ejs
+    scripts   : /js/portal/ 아래 로드할 파일명 배열 (공용 util/state/nav 제외)
+    modals    : views/portal/modals/<name>.ejs 배열
+-%>
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <title><%= title %> · 인포크/메일 제안</title>
+  <link rel="stylesheet" href="/css/portal.css">
+</head>
+<body>
+  <div class="header">
+    <h1>인포크/메일 제안</h1>
+    <div style="display:flex;gap:8px;align-items:center">
+      <a class="status-badge" id="headerReplyBadge" href="/portal/replies"
+         style="display:none;background:rgba(99,102,241,0.9);cursor:pointer;text-decoration:none;color:#fff"></a>
+      <div class="status-badge" id="headerUser" style="display:none"></div>
+      <div class="status-badge" id="headerStatus">준비</div>
+      <a class="status-badge" href="#" onclick="doLogout();return false"
+         style="cursor:pointer;text-decoration:none;color:inherit">로그아웃</a>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <a class="tab<%= activeSub === 'influencers' ? ' active' : '' %>" href="/portal/influencers">인플루언서</a>
+    <a class="tab<%= activeSub === 'run' ? ' active' : '' %>" href="/portal/run">인포크/메일 발송</a>
+    <a class="tab<%= activeSub === 'replies' ? ' active' : '' %>" href="/portal/replies">인포크 답장 확인</a>
+  </div>
+
+  <div class="content">
+    <%- include('pages/' + page) %>
+  </div>
+
+<% (modals || []).forEach(function (m) { %>
+  <%- include('modals/' + m) %>
+<% }); %>
+  <%- include('modals/dialog') %>
+
+  <script src="/js/portal/util.js"></script>
+  <script src="/js/portal/state.js"></script>
+  <script src="/js/portal/nav.js"></script>
+<% (scripts || []).forEach(function (s) { %>
+  <script src="/js/portal/<%= s %>"></script>
+<% }); %>
+  <script src="/js/portal/init/<%= page %>.js"></script>
+</body>
+</html>

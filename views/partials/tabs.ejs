@@ -26,14 +26,6 @@
     ],
   };
 %>
-<%# [요청] 인포크/메일 제안 담당자용 전용 URL — portal이면 전체 GNB 대신 인포크/메일 제안 3탭만 노출 -%>
-<% if (portal) { %>
-<div class="tabs">
-<% SUBTABS.inpock.forEach(function (s) { %>
-  <a class="tab<%= activeSub === s.key ? ' active' : '' %>" href="/portal<%= s.href %>"><%= s.label %></a>
-<% }); %>
-</div>
-<% } else { %>
 <div class="tabs">
 <% TABS.forEach(function (t) { %>
   <a class="tab<%= t.right ? ' tab-right' : '' %><%= active === t.key ? ' active' : '' %>" href="<%= t.href %>"><%= t.label %><% if (t.badge) { %> <span class="leads-due-badge" id="<%= t.badge %>" style="display:none">0</span><% } %></a>
@@ -45,5 +37,4 @@
   <a class="subtab<%= activeSub === s.key ? ' active' : '' %>" href="<%= s.href %>"><%= s.label %></a>
 <% }); %>
 </div>
-<% } %>
 <% } %>

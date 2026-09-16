@@ -237,12 +237,18 @@ UI_PAGES.forEach(([route, opts]) => {
 // 진입점 — 기존 '/' 는 제품 목록으로
 app.get('/', (req, res) => res.redirect('/products'));
 
-// [요청] 인포크/메일 제안 담당자용 전용 URL — 위 3개(/influencers,/run,/replies)와 완전히 같은 화면을
-//   /portal/* 로도 열어준다(뷰·API 신규 없음, portal:true만 추가). 관리자가 계속 바꿀 다른 탭들과 무관하게
-//   담당자에게 고정 링크(/portal/run) 하나만 주기 위함 — 기존 UI_PAGES 라우트·tabs.ejs 목록은 무변경.
-const PORTAL_SUBTABS = ['influencers', 'run', 'replies'];
-UI_PAGES.filter(([route]) => PORTAL_SUBTABS.includes(route.slice(1))).forEach(([route, opts]) => {
-  app.get('/portal' + route, (req, res) => res.render('layout', { ...opts, portal: true }));
+// [요청] /portal 분리복제 — 인포크/메일 제안(인플루언서/발송/답장확인) 화면을 완전히 독립된 사본으로 제공.
+//   views/portal/*·public/js/portal/*·public/css/portal.css는 지금 시점 스냅샷이라, 위 UI_PAGES와
+//   공유 layout.ejs/tabs.ejs/app.css/util.js를 앞으로 갈아엎어도 이 라우트·화면은 영향받지 않는다.
+//   API(/api/influencers 등)·리포지토리·DB 스키마·세션 인증은 계속 공유(레이아웃/프론트 개편 범위 밖으로
+//   판단 — 백엔드 계약까지 바뀌면 이쪽도 별도로 반영 필요).
+const PORTAL_PAGES = [
+  ['/portal/influencers', { title: '인플루언서', activeSub: 'influencers', page: 'influencers', scripts: ['influencers.js'], modals: [] }],
+  ['/portal/run', { title: '인포크/메일 발송', activeSub: 'run', page: 'run', scripts: ['accounts.js', 'influencers.js', 'run.js'], modals: ['manualSend'] }],
+  ['/portal/replies', { title: '인포크 답장 확인', activeSub: 'replies', page: 'replies', scripts: ['replies.js'], modals: [] }],
+];
+PORTAL_PAGES.forEach(([route, opts]) => {
+  app.get(route, (req, res) => res.render('portal/layout', opts));
 });
 app.get('/portal', (req, res) => res.redirect('/portal/run'));
 
