@@ -77,13 +77,21 @@ $$;
 create table if not exists email_accounts (
   id                   serial      primary key,
   email                text        not null unique,
-  app_password         text        not null,
+  app_password         text        not null default '',   -- SMTP 폴백용(로컬). Gmail API 연결 계정은 비워도 됨
   sender_name          text        not null,
   signature            text,
   signature_image_url  text,       -- 서명 이미지 URL (4단계 파일 저장소 전까지 Supabase 공개 URL)
+  -- [요청] Gmail API 발송 전환 — Google OAuth refresh token (있으면 SMTP 대신 Gmail API로 발송)
+  google_refresh_token text,
+  google_connected_at  timestamptz,
   active               boolean     not null default true,
   created_at           timestamptz not null default now()
 );
+
+-- [요청] Gmail API 발송 전환 — 기존 테이블용 멱등 마이그레이션
+alter table email_accounts add column if not exists google_refresh_token text;
+alter table email_accounts add column if not exists google_connected_at  timestamptz;
+alter table email_accounts alter column app_password set default '';
 
 ------------------------------------------------------------
 -- 4. products : 제품 마스터

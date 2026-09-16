@@ -249,8 +249,67 @@ const emailAccountsRepo = require('./src/repo/emailAccountsRepo');
 
 app.get('/api/emailAccounts', async (req, res) => {
   try {
-    res.json(await emailAccountsRepo.list());
+    // [요청] Gmail API 발송 전환 — refresh token은 응답에서 제거, googleConnected만 노출
+    res.json((await emailAccountsRepo.list()).map(emailAccountsRepo.toPublic));
   } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── Gmail API OAuth ───
+// [요청] Gmail API 발송 전환 — 설정 화면 "Google 연결" → 동의 → 콜백에서 refresh token 저장 (카페24와 같은 패턴)
+const gmailApi = require('./src/gmailApi');
+
+function gmailRedirectUri(req) {
+  const fwd = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+  const proto = fwd || req.protocol;
+  return `${proto}://${req.get('host')}/api/gmail/callback`;
+}
+
+app.get('/api/gmail/status', (req, res) => {
+  res.json({ configured: gmailApi.isConfigured() });
+});
+
+app.get('/api/gmail/auth', async (req, res) => {
+  if (!gmailApi.isConfigured()) return res.status(400).send('GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET 환경변수가 필요합니다.');
+  const accountId = Number(req.query.accountId);
+  const acc = Number.isInteger(accountId) ? await emailAccountsRepo.findById(accountId) : null;
+  if (!acc) return res.status(404).send('이메일 계정을 찾을 수 없습니다. 먼저 저장해주세요.');
+  const nonce = crypto.randomBytes(16).toString('hex');
+  req.session.gmailAuth = { nonce, accountId };
+  res.redirect(gmailApi.getAuthUrl(gmailRedirectUri(req), `${accountId}.${nonce}`));
+});
+
+app.get('/api/gmail/callback', async (req, res) => {
+  try {
+    const { code, state, error, error_description } = req.query;
+    if (error) throw new Error(error_description || error);
+    if (!code) throw new Error('인증 코드가 없습니다.');
+    const pending = req.session.gmailAuth;
+    if (!pending || state !== `${pending.accountId}.${pending.nonce}`) throw new Error('state 불일치 (다시 시도해주세요).');
+    delete req.session.gmailAuth;
+    const acc = await emailAccountsRepo.findById(pending.accountId);
+    if (!acc) throw new Error('이메일 계정을 찾을 수 없습니다.');
+    // 인증코드는 1회용·단기 — 즉시 교환
+    const { refreshToken, email } = await gmailApi.exchangeCode(code, gmailRedirectUri(req));
+    // 다른 구글 계정으로 잘못 연결되는 것 방지: 연결한 계정 주소가 등록 주소와 같아야 저장
+    if (email && email !== String(acc.email || '').trim().toLowerCase()) {
+      throw new Error(`연결한 구글 계정(${email})이 등록된 주소(${acc.email})와 다릅니다. 등록된 주소로 로그인해 다시 연결해주세요.`);
+    }
+    await emailAccountsRepo.setGoogleToken(acc.id, refreshToken);
+    res.redirect('/settings?gmail=connected');
+  } catch (e) {
+    res.redirect(`/settings?gmail=error&msg=${encodeURIComponent(e.message)}`);
+  }
+});
+
+app.post('/api/gmail/disconnect', async (req, res) => {
+  try {
+    const { id } = req.body || {};
+    await emailAccountsRepo.setGoogleToken(Number(id), null);
+    res.json({ ok: true });
+  } catch (e) {
+    if (e.code === 'NOT_FOUND') return res.status(404).json({ error: '이메일 계정을 찾을 수 없습니다.' });
     res.status(500).json({ error: e.message });
   }
 });

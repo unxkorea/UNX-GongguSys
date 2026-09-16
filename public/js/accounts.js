@@ -97,9 +97,10 @@ function renderEmailAccounts() {
           <input type="text" value="${esc(acc.email)}" onchange="emailAccounts[${i}].email=this.value;renderRunEmailAccountOptions()">
         </div>
         <div class="form-group" style="margin-bottom:0">
-          <label>앱 비밀번호</label>
+          <!-- [요청] Gmail API 발송 전환 — 앱 비밀번호는 로컬 SMTP 폴백용(선택) -->
+          <label>앱 비밀번호 (로컬 SMTP 폴백용 · 선택)</label>
           <!-- [요청] Google이 'abcd efgh ijkl mnop' 형식으로 보여줘서 그대로 붙여넣기 쉬움 → 입력 즉시 공백 제거 -->
-          <input type="password" value="${esc(acc.appPassword)}" onchange="this.value=this.value.replace(/\\s+/g,'');emailAccounts[${i}].appPassword=this.value">
+          <input type="password" value="${esc(acc.appPassword || '')}" onchange="this.value=this.value.replace(/\\s+/g,'');emailAccounts[${i}].appPassword=this.value">
         </div>
         <div class="form-group" style="margin-bottom:0">
           <label>표시 이름 (선택)</label>
@@ -125,6 +126,17 @@ function renderEmailAccounts() {
             </label>
           `}
         </div>
+      </div>
+      <!-- [요청] Gmail API 발송 전환 — Google 연결 상태/버튼. 연결되면 SMTP 대신 Gmail API(HTTPS)로 발송(Railway에서 필수) -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:8px 10px;border-radius:8px;background:${acc.googleConnected ? '#ecfdf5' : '#fffbeb'};font-size:12px">
+        <span style="flex:1;color:${acc.googleConnected ? '#047857' : '#92400e'}">
+          ${acc.googleConnected
+            ? '✓ Google 연결됨 — Gmail API로 발송' + (acc.googleConnectedAt ? ' (연결일 ' + esc(String(acc.googleConnectedAt).slice(0, 10)) + ')' : '')
+            : '⚠ Google 미연결 — 서버(Railway)에서는 발송 불가. 로컬에서만 앱 비밀번호(SMTP)로 발송됨'}
+        </span>
+        ${acc.googleConnected
+          ? `<button class="btn btn-outline btn-sm" onclick="disconnectGoogle(${acc.id})">연결 해제</button>`
+          : `<button class="btn btn-primary btn-sm" onclick="connectGoogle(${i})">Google 연결</button>`}
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center">
         <button class="btn btn-outline btn-sm" onclick="verifyEmailAccount(${acc.id})">연결 테스트</button>
@@ -176,6 +188,28 @@ async function verifyEmailAccount(id) {
   }
 }
 
+// [요청] Gmail API 발송 전환 — Google 연결/해제
+async function connectGoogle(i) {
+  const acc = emailAccounts[i];
+  if (!acc || !(acc.email || '').trim()) { showAlert('Gmail 주소를 먼저 입력해주세요.'); return; }
+  // 현재 입력값(주소 등)을 먼저 저장해야 콜백에서 주소 일치 검증이 정확함
+  await fetch('/api/emailAccounts', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(emailAccounts) });
+  const res = await fetch('/api/emailAccounts');
+  emailAccounts = await res.json();
+  const saved = emailAccounts.find(a => (a.email || '').trim().toLowerCase() === acc.email.trim().toLowerCase());
+  if (!saved) { showAlert('계정 저장에 실패했습니다. 다시 시도해주세요.'); return; }
+  const st = await fetch('/api/gmail/status').then(r => r.json()).catch(() => ({}));
+  if (!st.configured) { showAlert('서버에 GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET 환경변수가 없습니다.'); return; }
+  location.href = '/api/gmail/auth?accountId=' + saved.id;
+}
+
+async function disconnectGoogle(id) {
+  if (!(await showConfirm('Google 연결을 해제하시겠습니까? 서버(Railway)에서는 이 계정으로 발송할 수 없게 됩니다.'))) return;
+  const res = await fetch('/api/gmail/disconnect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+  if (!res.ok) { const d = await res.json().catch(() => ({})); showAlert('해제 실패: ' + (d.error || res.status)); return; }
+  loadEmailAccounts();
+}
+
 async function uploadSignatureImage(i, files) {
   if (!files || !files[0]) return;
   const original = files[0];
@@ -209,7 +243,8 @@ function renderRunEmailAccountOptions() {
   if (!sel) return;
   const prev = sel.value;
   sel.innerHTML = '<option value="">(선택 안 함)</option>' +
-    emailAccounts.map(a => `<option value="${a.id}">${esc(a.email)}${a.senderName ? ' · ' + esc(a.senderName) : ''}</option>`).join('');
+    // [요청] Gmail API 발송 전환 — 연결 방식 표시 (API=서버 발송 가능 / SMTP=로컬 전용)
+    emailAccounts.map(a => `<option value="${a.id}">${esc(a.email)}${a.senderName ? ' · ' + esc(a.senderName) : ''} [${a.googleConnected ? 'API' : 'SMTP'}]</option>`).join('');
   if (prev) sel.value = prev;
   else if (emailAccounts.length > 0) sel.value = String(emailAccounts[0].id);
 }

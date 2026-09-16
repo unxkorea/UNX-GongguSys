@@ -6,3 +6,16 @@ loadAccounts();
 loadEmailAccounts();
 // [요청] 직원 관리 카드
 loadEmployees().then(renderEmployeesAdmin);
+
+// [요청] Gmail API 발송 전환 — Google OAuth 콜백 복귀 처리 (?gmail=connected|error)
+(function handleGmailReturn() {
+  const params = new URLSearchParams(location.search);
+  const result = params.get('gmail');
+  if (!result) return;
+  history.replaceState(null, '', location.pathname); // 새로고침 시 재알림 방지
+  if (result === 'connected') {
+    showToast('Google 연결 완료! 이제 서버에서 Gmail API로 발송됩니다.');
+  } else if (result === 'error') {
+    showAlert('Google 연결 실패: ' + (params.get('msg') || '알 수 없는 오류'));
+  }
+})();

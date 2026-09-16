@@ -6,6 +6,10 @@
 
 [ 요청사항 ]
 
+## Gmail API 발송 전환 — Railway SMTP 차단 우회 (HTTPS)
+Railway Hobby 플랜은 아웃바운드 SMTP(25/465/587)를 차단해 nodemailer Gmail 발송이 `Connection timeout`으로 실패한다(2026-09-16 확인, 인포크 발송·확인은 HTTPS라 무영향). 플랜 업그레이드 대신 **같은 Gmail 계정으로 Gmail API(HTTPS)** 를 통해 발송하도록 교체. 앱 비밀번호 대신 Google OAuth 토큰을 DB에 저장하고, 카페24처럼 설정 화면에서 한 번 "Google 연결"로 인증한다. 로컬 SMTP 경로는 폴백으로 유지.
+
+
 ## [Railway 전환 2단계] 관리자 개별 계정(ID/PW) + 역할·파트 부여
 현재 `settings.json`의 단일 공용 비밀번호 하나로 진입. 관리자 개별 ID/PW 로그인으로 전환.
 - `admin` / `staff` 두 역할. admin은 모든 공동구매 파트 접근 가능.
@@ -39,6 +43,22 @@ admin/staff 각 계정이 로그인 후 접속한 메뉴, 수행한 CRUD, 발생
 - 갈피 잡히면 위 옵션 중 하나(또는 별안)로 정식 요청 예정. 그 전까진 코드 수정 없음.
 
 [ 실행계획 ]
+
+### Gmail API 발송 전환 — 실행계획
+**전제(사용자 작업, Google Cloud Console)**: ① 프로젝트 생성 → "Gmail API" 사용 설정 ② OAuth 동의 화면: User Type=외부, 게시 상태를 **"프로덕션"으로 전환**(테스트 상태면 refresh token이 7일마다 만료됨. 미인증 앱 경고 화면은 "고급 → 이동"으로 통과 가능, 발송 계정 1개만 쓰므로 인증 심사 불필요) ③ 사용자 인증 정보 → OAuth 클라이언트 ID(웹 애플리케이션), 승인된 리디렉션 URI에 `https://unx-gonggusys-production.up.railway.app/api/gmail/callback` 와 `http://localhost:3000/api/gmail/callback` 등록 ④ 클라이언트 ID/보안 비밀을 Railway Variables와 로컬 .env에 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`으로 추가. 스코프는 `gmail.send` 하나만 요청.
+1. **스키마** [scripts/schema.pg.sql](../scripts/schema.pg.sql): `email_accounts`에 `google_refresh_token text`, `google_connected_at timestamptz` 추가(멱등 ALTER). JSON 모드는 `emailAccounts.json`의 `googleRefreshToken` 필드. `app_password`는 폴백용으로 유지.
+2. **OAuth 모듈** `src/gmailApi.js` (의존성 추가 없음, Node 20 fetch):
+   - `getAuthUrl(accountId, redirectUri, state)` — `access_type=offline&prompt=consent`(refresh token 확실히 수령).
+   - `exchangeCode(code, redirectUri)` → refresh token + id_token. **id_token의 email이 해당 email_accounts.email과 일치할 때만 저장**(다른 구글 계정으로 잘못 연결 방지).
+   - `getAccessToken(account)` — refresh token으로 access token 발급, 프로세스 메모리 캐시(만료 60초 전 갱신).
+   - `sendRaw(account, rfc822Buffer)` — `POST https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send?uploadType=media` (Content-Type `message/rfc822`). 업로드 엔드포인트라 첨부 포함 35MB까지 가능. 401이면 토큰 1회 재발급 후 재시도, `invalid_grant`면 `NOT_CONNECTED` 에러(재연결 안내).
+3. **발송 경로** [src/emailSender.js](../src/emailSender.js): 기존 `mailOptions`(from/to/subject/html/attachments cid/bcc) 조립 코드는 그대로 두고, 전송만 분기 — 계정에 `googleRefreshToken`이 있으면 nodemailer의 `MailComposer`로 RFC822 생성(URL·로컬 경로 첨부, cid 인라인 모두 지원) → `gmailApi.sendRaw`; 없으면 기존 SMTP. Bcc는 raw 메시지의 Bcc 헤더로 Gmail API가 처리. 로그에 `[메일][API]`/`[메일][SMTP]` 표기.
+4. **서버 라우트** [server.js](../server.js): `GET /api/gmail/auth?accountId=` → 동의 화면 리다이렉트(state에 accountId+nonce, 세션 저장) / `GET /api/gmail/callback` → 코드 교환·이메일 일치 검증·저장 → 설정 탭으로 리다이렉트 / `POST /api/gmail/disconnect` / `GET /api/gmail/status` (계정별 연결 여부). 리디렉션 URI는 카페24와 같은 `x-forwarded-proto` 기반 조립 재사용. 기존 `POST /api/emailAccounts/verify`는 API 연결 계정이면 `users/me/profile` 호출로 검증.
+5. **repo** [src/repo/emailAccountsRepo.js](../src/repo/emailAccountsRepo.js): `list()`에 `googleRefreshToken`(마스킹 없이 서버 내부용) + `googleConnected` 불리언 노출, `setGoogleToken(id, refreshToken|null)` 추가. **API 응답(`GET /api/emailAccounts`)에는 토큰을 내보내지 않고 `googleConnected`만** 내려준다.
+6. **UI** 설정 탭 Gmail 계정 카드([views/pages/settings.ejs](../views/pages/settings.ejs) + `public/js/emailAccounts.js`): "Google 연결됨 ✓ (연결 해제)" / "Google 연결" 버튼. 앱 비밀번호 입력란은 "로컬 SMTP 폴백용(선택)"으로 라벨 변경. 발송 탭 Gmail 계정 선택에 연결 상태 뱃지.
+7. **검증**: 로컬에서 Google 연결 → 로컬 dry-run → Railway 배포 → Railway UI에서 본인 주소로 1건 실발송(첨부 이미지 cid·서명 이미지·BCC 수신 확인) → 대기 중인 실제 2건 발송.
+- 산출물: `src/gmailApi.js`, `src/emailSender.js`, `src/repo/emailAccountsRepo.js`, `server.js`, `scripts/schema.pg.sql`, 설정 탭 뷰/JS, CLAUDE.md 갱신(발송 경로·환경변수).
+
 
 ### [Railway 전환 2단계] 개별 계정 + 역할·파트 — 실행계획
 1. **스키마**: `employees`에 `login_id text unique`, `password_hash text`, `role text check(role in ('admin','staff')) default 'staff'`, `active bool default true`, `last_login_at timestamptz` 추가. 신규 `parts(id, code unique, name, sort_order, active)`(초기값: 영업/CS/정산), `employee_parts(employee_id, part_id, primary key(employee_id, part_id))` M:N — 중복 부여는 이 테이블 행 수로 표현. admin은 행 없이도 전 파트 접근(코드에서 판단).

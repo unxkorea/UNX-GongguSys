@@ -53,7 +53,7 @@ UI에서 "발송 시작"을 누르면 [server.js](server.js)가 `node src/index.
 
 1. [src/repo/influencersRepo.js](src/repo/influencersRepo.js)의 `listPending()`이 발송 대상(status=pending) 로드.
 2. `profileUrl`에 `@`가 있으면 **이메일 경로**, 아니면 **인포크 브라우저 경로**로 분기.
-3. 이메일 타겟은 [src/emailSender.js](src/emailSender.js)의 `sendMail()`로 nodemailer(Gmail SMTP) 발송. `EMAIL_ACCOUNT_ID` env로 [src/repo/emailAccountsRepo.js](src/repo/emailAccountsRepo.js)에서 계정 선택.
+3. 이메일 타겟은 [src/emailSender.js](src/emailSender.js)의 `sendMail()`이 발송. `EMAIL_ACCOUNT_ID` env로 [src/repo/emailAccountsRepo.js](src/repo/emailAccountsRepo.js)에서 계정 선택. **전송 경로는 계정의 Google 연결 여부로 분기**: `googleRefreshToken`이 있으면 nodemailer `MailComposer`로 RFC822 원문을 만들어 [src/gmailApi.js](src/gmailApi.js)가 Gmail API(HTTPS)로 전송, 없으면 nodemailer Gmail SMTP(앱 비밀번호). **Railway는 Hobby 플랜에서 아웃바운드 SMTP를 차단하므로 서버 발송은 API 경로만 동작**한다. Google OAuth는 설정 탭 "Google 연결"(`/api/gmail/auth` → `/api/gmail/callback`)로 계정별 refresh token을 `email_accounts.google_refresh_token`에 저장. 환경변수 `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` 필요(Railway Variables + 로컬 .env). 콜백 URI는 Google Cloud OAuth 클라이언트에 `https://<railway-domain>/api/gmail/callback`, `http://localhost:3000/api/gmail/callback` 등록 필요. Bcc는 원문의 Bcc 헤더로 전달(`MimeNode.keepBcc=true`).
 4. 인포크 타겟은 Playwright chromium을 띄워 [src/accountManager.js](src/accountManager.js)의 `getAvailableAccount()`가 고른 계정(from [src/repo/accountsRepo.js](src/repo/accountsRepo.js))으로 [src/auth.js](src/auth.js)의 `login()` → [src/proposal.js](src/proposal.js)의 `sendProposal()` → 슬롯 소진되면 `logout()` → 다음 계정으로 순환.
 5. 실패는 `influencers.status='failed'` + `error` 컬럼으로 즉시 기록. UI의 "재발송"은 failed→pending 상태 전환.
 

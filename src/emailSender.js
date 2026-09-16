@@ -1,10 +1,28 @@
 // [요청] Supabase 메인 DB 이전 — emailAccountsRepo 경유 + Supabase Storage URL 첨부 지원
+// [요청] Gmail API 발송 전환 — 계정에 Google 연결(refresh token)이 있으면 SMTP 대신 Gmail API(HTTPS)로 발송.
+//   본문·첨부(cid)·서명·BCC 조립은 기존 mailOptions 그대로 쓰고, 전송 단계만 분기한다.
+//   Railway(SMTP 차단)에서는 API 경로만 동작하고, 로컬은 앱 비밀번호 SMTP 폴백도 계속 가능.
 const fs = require('fs');
 const path = require('path');
 const nodemailer = require('nodemailer');
+const MailComposer = require('nodemailer/lib/mail-composer');
 const config = require('../config');
 const emailAccountsRepo = require('./repo/emailAccountsRepo');
+const gmailApi = require('./gmailApi');
 const { personalizeGreeting } = require('./personalize');
+
+// Google 연결된 계정이면 API 경로. (환경변수 미설정 시 refresh token이 있어도 SMTP로 폴백)
+function usesGmailApi(emailAccount) {
+  return !!(emailAccount && emailAccount.googleRefreshToken) && gmailApi.isConfigured();
+}
+
+// mailOptions → RFC822 원문(Buffer). URL/로컬 경로 첨부·cid 인라인은 nodemailer의 MimeNode가 처리.
+async function buildRawMessage(mailOptions) {
+  const node = new MailComposer(mailOptions).compile();
+  // MimeNode는 기본적으로 Bcc 헤더를 원문에서 제거한다. Gmail API는 Bcc 헤더를 보고 참조자에게 보내므로 유지.
+  node.keepBcc = true;
+  return node.build();
+}
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -142,7 +160,6 @@ async function sendMail(emailAccount, influencer, product) {
   }
 
   try {
-    const transporter = createTransport(emailAccount);
     // [요청] 참조자 이메일 빈값이면 BCC 키 자체 제외 — nodemailer에 빈 문자열 안 넘김
     const mailOptions = {
       from: `"${emailAccount.senderName || emailAccount.email}" <${emailAccount.email}>`,
@@ -155,8 +172,17 @@ async function sendMail(emailAccount, influencer, product) {
       ],
     };
     if (config.MAIL_BCC) mailOptions.bcc = config.MAIL_BCC;
+
+    // [요청] Gmail API 발송 전환 — 전송 단계 분기
+    if (usesGmailApi(emailAccount)) {
+      const raw = await buildRawMessage(mailOptions);
+      const info = await gmailApi.sendRaw(emailAccount, raw);
+      console.log(`${label} [API] 발송 성공! (id: ${info.id})`);
+      return { success: true };
+    }
+    const transporter = createTransport(emailAccount);
     const info = await transporter.sendMail(mailOptions);
-    console.log(`${label} 발송 성공! (messageId: ${info.messageId})`);
+    console.log(`${label} [SMTP] 발송 성공! (messageId: ${info.messageId})`);
     return { success: true };
   } catch (error) {
     console.error(`${label} 발송 실패:`, error.message);
@@ -165,6 +191,11 @@ async function sendMail(emailAccount, influencer, product) {
 }
 
 async function verifyTransport(emailAccount) {
+  // [요청] Gmail API 발송 전환 — 연결된 계정은 토큰 재발급 + 계정 주소 일치 확인, 아니면 SMTP verify
+  if (usesGmailApi(emailAccount)) {
+    await gmailApi.verify(emailAccount);
+    return;
+  }
   const transporter = createTransport(emailAccount);
   await transporter.verify();
 }
@@ -176,4 +207,6 @@ module.exports = {
   sendMail,
   verifyTransport,
   buildSubject,
+  usesGmailApi,
+  buildRawMessage,
 };
