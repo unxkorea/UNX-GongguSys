@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>개인정보처리방침 — UNX 공동구매 관리 시스템</title>
+  <style>
+    body { font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; max-width: 760px; margin: 0 auto; padding: 40px 20px; color: #1f2937; line-height: 1.7; }
+    h1 { font-size: 22px; margin-bottom: 4px; }
+    h2 { font-size: 16px; margin-top: 28px; }
+    .meta { color: #6b7280; font-size: 13px; }
+    ul { padding-left: 20px; }
+  </style>
+</head>
+<body>
+  <!-- [요청] Gmail API 발송 전환 — Google OAuth 앱 프로덕션 게시 요건(홈페이지·개인정보처리방침 URL이 승인된 도메인에 존재) -->
+  <h1>개인정보처리방침</h1>
+  <p class="meta">UNX 공동구매 관리 시스템 (UNX-GongguSys) · 시행일 2026-09-16</p>
+
+  <p>본 시스템은 언엑스(UNX)가 공동구매 제안 업무를 위해 내부적으로 운영하는 관리자 전용 도구입니다. 외부 일반 사용자를 대상으로 서비스하지 않으며, 접근 권한이 있는 운영 담당자만 이용합니다.</p>
+
+  <h2>1. Google 계정 데이터의 이용</h2>
+  <p>본 시스템은 운영 담당자가 직접 연결한 Gmail 계정을 통해 제안 이메일을 발송하기 위해 Google API를 사용합니다.</p>
+  <ul>
+    <li>요청 권한: <code>gmail.send</code>(이메일 발송), <code>openid</code>·<code>email</code>(연결된 계정 주소 확인)</li>
+    <li>메일함 읽기, 연락처, 그 외 어떤 Google 데이터에도 접근하지 않습니다.</li>
+    <li>연결 시 발급되는 OAuth 토큰은 발송 목적으로만 사용되며 시스템 데이터베이스에 암호화된 연결로 저장됩니다. 운영 담당자는 설정 화면에서 언제든 연결을 해제할 수 있으며, 해제 즉시 토큰은 삭제됩니다.</li>
+  </ul>
+  <p>본 시스템의 Google 사용자 데이터 이용은 <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API 서비스 사용자 데이터 정책</a>의 제한적 사용(Limited Use) 요건을 준수합니다.</p>
+
+  <h2>2. 처리하는 정보</h2>
+  <ul>
+    <li>발송 대상 정보: 제안 대상의 공개 프로필 주소 또는 이메일 주소, 활동명</li>
+    <li>발송 기록: 발송 일시, 사용 계정, 제안 제품명</li>
+    <li>운영 계정 정보: 발송에 사용하는 이메일 주소와 서명</li>
+  </ul>
+
+  <h2>3. 제3자 제공 및 공유</h2>
+  <p>수집된 정보는 제안 이메일 발송 및 그 이력 관리 목적 외에 사용하지 않으며, 법령에 따른 경우를 제외하고 제3자에게 제공하거나 판매하지 않습니다. Google 사용자 데이터를 광고 목적으로 사용하거나 타인에게 이전하지 않습니다.</p>
+
+  <h2>4. 보관 및 파기</h2>
+  <p>발송 기록은 업무 이력 관리를 위해 보관하며, 운영 필요가 끝나면 삭제합니다. Google 연결 토큰은 연결 해제 시 즉시 파기됩니다.</p>
+
+  <h2>5. 문의</h2>
+  <p>본 방침에 관한 문의: <a href="mailto:kh.undefiance@gmail.com">kh.undefiance@gmail.com</a></p>
+</body>
+</html>

@@ -50,6 +50,7 @@ function authRequired(req, res, next) {
   if (req.path === '/favicon.ico') return next();   // favicon은 인증 없이 허용 (로그인 페이지 탭 아이콘)
   if (req.path.startsWith('/recommend')) return next(); // [요청] 추천 카탈로그 공개 페이지 — 링크만 있으면 인증 없이 열람
   if (req.path.startsWith('/api/public/')) return next(); // [요청] Railway 전환 1단계 — 공개 카탈로그 API (anon 키 RPC 대체)
+  if (req.path === '/privacy') return next();              // [요청] Gmail API 발송 전환 — OAuth 게시용 개인정보처리방침 공개 페이지
   if (req.session && req.session.authenticated) return next();
   // API 호출은 401, 그 외는 /login으로 리다이렉트
   if (req.path.startsWith('/api/')) {
@@ -61,6 +62,11 @@ function authRequired(req, res, next) {
 // 인증 없이 접근 가능: 로그인 페이지·로그인 API·정적 로그인 리소스
 app.get('/login', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+// [요청] Gmail API 발송 전환 — Google OAuth 앱을 프로덕션으로 게시하려면 승인된 도메인 아래
+//   홈페이지 URL(/)과 개인정보처리방침 URL이 필요. /privacy는 인증 없이 공개.
+app.get('/privacy', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'privacy.html'));
 });
 app.post('/api/login', (req, res) => {
   const { password } = req.body || {};
