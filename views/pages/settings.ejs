@@ -75,6 +75,30 @@
     </div>
   </div>
 
+  <!-- [요청] Railway 전환 2단계 — 공동구매 파트 관리 (admin 전용, accountsAdmin.js가 role 확인 후 표시) -->
+  <div class="card" id="partsAdminCard" style="display:none">
+    <div class="card-title">공동구매 파트 관리</div>
+    <p style="font-size:12px;color:#6b7280;margin-bottom:12px">
+      영업/CS/정산 등 파트를 관리합니다. 아래 "계정 관리"에서 직원마다 여러 파트를 중복 부여할 수 있고,
+      관리자는 모든 파트에 자동으로 접근합니다.
+    </p>
+    <div id="partsAdminBody" style="max-width:460px;margin-bottom:12px"></div>
+    <div style="display:flex;gap:8px;max-width:460px">
+      <input type="text" id="newPartName" placeholder="파트 이름 (예: 영업, CS, 정산)" style="flex:1" onkeydown="if(event.key==='Enter')addPart()">
+      <button class="btn btn-primary btn-sm" onclick="addPart()" style="white-space:nowrap">+ 파트 추가</button>
+    </div>
+  </div>
+
+  <!-- [요청] Railway 전환 2단계 — 관리자 개별 계정(ID/PW) + 역할·파트 부여 (admin 전용) -->
+  <div class="card" id="accountsAdminCard" style="display:none">
+    <div class="card-title">계정 관리 (로그인 ID/PW)</div>
+    <p style="font-size:12px;color:#6b7280;margin-bottom:12px">
+      아래 "직원 관리"에 이름을 추가한 뒤, 여기서 로그인 ID/비밀번호를 부여하면 그 직원이 개인 계정으로 로그인할 수 있습니다.
+      관리자는 모든 메뉴·파트에 접근하고, 직원은 부여된 파트만 접근합니다(이번 단계는 데이터 구조만 — 파트별 화면 제한은 후속 작업).
+    </p>
+    <div id="accountsAdminBody"></div>
+  </div>
+
   <!-- [요청] 자주 사용하는 문구 — 직원별 추가/복사 탭 신설: 직원 관리 -->
   <div class="card">
     <div class="card-title">직원 관리</div>

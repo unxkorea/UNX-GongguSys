@@ -69,6 +69,32 @@ async function refreshLeadsBadge() {
 }
 
 // ═══════════════════════════════════════
+//  [요청] Railway 전환 2단계 — 헤더 사용자 표시 + 전역 currentUser
+//  window.currentUser: {name, loginId, role, parts} | null (비로그인/과도기 등 정보 없음)
+//  window.currentUserReady: 위 값이 채워진 뒤 resolve되는 Promise. 다른 페이지 스크립트(accountsAdmin.js
+//  등)가 role에 따라 admin 전용 UI를 그릴 때 await해서 쓴다.
+// ═══════════════════════════════════════
+window.currentUser = null;
+window.currentUserReady = (async function loadCurrentUser() {
+  const badge = document.getElementById('headerUser');
+  try {
+    const res = await fetch('/api/auth/status');
+    const data = await res.json();
+    window.currentUser = data.user || null;
+    if (badge) {
+      if (data.needsAuth && data.user) {
+        const roleLabel = data.user.role === 'admin' ? '관리자' : '직원';
+        badge.textContent = `${data.user.name || data.user.loginId || roleLabel} · ${roleLabel}`;
+        badge.style.display = 'inline-flex';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+  } catch { /* 조회 실패 시 조용히 무시 — 헤더 배지만 안 뜸 */ }
+  return window.currentUser;
+})();
+
+// ═══════════════════════════════════════
 //  모달 ESC 닫기 (공통 핸들러 + 페이지별 등록)
 // ═══════════════════════════════════════
 // [요청] C단계 — A단계까지 init.js가 6개 모달을 한 객체에 하드코딩했으나,

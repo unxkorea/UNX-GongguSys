@@ -19,8 +19,11 @@
   </style>
 </head>
 <body>
+  <!-- [요청] Railway 전환 2단계 — 개인 계정(로그인 ID/PW) 로그인. ID를 비워두면 기존 단일 비밀번호(과도기)로 시도. -->
   <form class="box" onsubmit="return submitLogin(event)">
     <h1>관리 UI 로그인</h1>
+    <label for="loginId">아이디 <span style="color:#64748b">(개인 계정이 없으면 비워두세요)</span></label>
+    <input id="loginId" type="text" autocomplete="username" style="width:100%;padding:10px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e5e7eb;font-size:14px;margin-bottom:14px">
     <label for="pw">비밀번호</label>
     <input id="pw" type="password" autocomplete="current-password" autofocus required>
     <button type="submit">로그인</button>
@@ -29,19 +32,25 @@
   <script>
     async function submitLogin(e) {
       e.preventDefault();
+      const loginId = document.getElementById('loginId').value.trim();
       const pw = document.getElementById('pw').value;
       const err = document.getElementById('err');
       err.textContent = '';
       try {
+        const body = loginId ? { loginId, password: pw } : { password: pw };
         const r = await fetch('/api/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password: pw }),
+          body: JSON.stringify(body),
         });
         if (r.ok) {
           location.href = '/';
+          return false;
+        }
+        if (r.status === 429) {
+          err.textContent = '로그인 시도가 너무 많습니다. 잠시 후 다시 시도해주세요.';
         } else {
-          err.textContent = '비밀번호가 올바르지 않습니다.';
+          err.textContent = loginId ? '아이디 또는 비밀번호가 올바르지 않습니다.' : '비밀번호가 올바르지 않습니다.';
         }
       } catch (ex) {
         err.textContent = '서버 오류: ' + ex.message;

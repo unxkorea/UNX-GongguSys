@@ -41,9 +41,18 @@ UI에서 "발송 시작"을 누르면 [server.js](server.js)가 `node src/index.
 
 ### 외부 접속 & 인증
 
-- [server.js](server.js)는 express-session 기반 비밀번호 인증을 적용. `settings.json`의 `adminPassword`가 비어있으면 **인증 비활성**(로컬 운영), 값이 있으면 `/login` 통과 전까지 모든 API/페이지 차단.
-- 로그인 페이지: [public/login.html](public/login.html). 엔드포인트: `POST /api/login`, `POST /api/logout`, `GET /api/auth/status`.
-- 세션 시크릿은 프로세스 시작 시 랜덤 생성 → 서버 재시작 시 전원 재로그인(의도된 동작).
+- [server.js](server.js)는 express-session 기반 인증을 적용. **인증 수단 둘 중 하나라도 있으면 인증 필요**: ① `settings.json`의 `adminPassword`(레거시 단일 비밀번호, 과도기 지원) ② [employees](scripts/schema.pg.sql) 테이블의 활성 로그인 계정(개인 ID/PW, 1개 이상). 둘 다 없으면 **인증 비활성**(로컬 전용 운영). `AUTH_DISABLED=true` 환경변수로도 강제 우회 가능(로컬 개발용).
+- **[요청] Railway 전환 2단계 — 관리자 개별 계정(ID/PW) + 역할·파트**:
+  - `employees` 테이블이 로그인 계정을 겸한다(`login_id`/`password_hash`(bcryptjs)/`role`('admin'|'staff')/`active`/`last_login_at`). `login_id`가 없는 employee는 예전처럼 "문구 탭 전용 이름"일 뿐이고, 설정 > "계정 관리"에서 admin이 로그인ID/PW를 부여하면 계정이 된다.
+  - `parts`(공동구매 파트: 영업/CS/정산, admin이 추가·이름변경·비활성 가능) + `employee_parts`(직원-파트 M:N, **중복 부여 가능**). admin은 파트 배정 없이도 전 파트 접근(코드에서 판단, DB에 행을 넣지 않음).
+  - 로그인은 `POST /api/login`에 `{loginId, password}`(개인 계정) 또는 `{password}`만(레거시, 과도기) 보낼 수 있다. 세션에 `{employeeId, loginId, role, parts}` 저장. `express-rate-limit`으로 IP당 15분에 20회 제한.
+  - 권한 판단은 [src/auth/guard.js](src/auth/guard.js)의 `requireRole('admin')`/`requirePart(code)` — role이 'admin'이면 무엇이든 통과. 인증이 아예 구성 안 된 상태([src/auth/state.js](src/auth/state.js)의 `isAuthBypassed()`)에서는 guard도 authRequired와 동일하게 전부 통과시킨다(로컬 무인증 운영 하위호환).
+  - **admin 전용으로 잠근 라우트**: 계정/파트 CRUD(`/api/employees/:id/account`, `/api/employees/:id/parts`, `/api/employees/:id` DELETE, `/api/parts*`), 설정 변경(`PUT /api/settings`), Gmail 계정 저장·연결(`PUT /api/emailAccounts`, `/api/gmail/auth`, `/api/gmail/disconnect`). 마지막 활성 admin 계정은 삭제·강등·비활성화 불가(`LAST_ADMIN` 에러).
+  - **최초 관리자 부트스트랩**: 활성 로그인 계정이 0개이고 `ADMIN_INIT_ID`/`ADMIN_INIT_PW` 환경변수가 있으면 서버 시작 시 1회 자동 생성(멱등 — 이미 있으면 no-op).
+  - `notifications` 테이블은 파트별 대시보드 알림용으로 정의만 해두었다(3단계 이후 사용 예정, 현재 코드에서는 미사용).
+  - JSON 롤백 모드도 동일 기능 지원: `employees.json`에 `loginId/passwordHash/role/active/lastLoginAt/partIds` 필드, 파트는 `parts.json`(최초 실행 시 영업/CS/정산 자동 시드).
+- 로그인 페이지: [public/login.html](public/login.html) — 아이디 칸을 비우면 레거시 단일 비밀번호로 시도. 엔드포인트: `POST /api/login`, `POST /api/logout`, `GET /api/auth/status`(응답에 `user: {name, loginId, role, parts}` 포함, 헤더의 사용자 배지가 이 값을 씀 — [public/js/nav.js](public/js/nav.js)의 `window.currentUser`/`window.currentUserReady`).
+- 세션 시크릿: `SESSION_SECRET` 환경변수 → `settings.json` → 없으면 프로세스 시작 시 랜덤 생성(랜덤 생성 시 재시작마다 전원 재로그인). Railway처럼 재배포가 잦은 환경은 `SESSION_SECRET`을 Variables에 고정하는 것을 권장.
 - 외부 노출 방법은 [md/how-to-run.md](md/how-to-run.md) 참고 — ngrok 고정 도메인(`shimmy-defame-unifier.ngrok-free.dev`)과 cloudflared 임시 URL 둘 다 사용 가능.
 - `config.HEADLESS`는 `settings.json`의 `headless` 값에서 읽히는 getter. 외부 접속 시 체크하면 발송 트리거 시 로컬 PC에 크롬창이 뜨지 않음.
 
@@ -59,7 +68,7 @@ UI에서 "발송 시작"을 누르면 [server.js](server.js)가 `node src/index.
 
 ### Repo 레이어 / DB 모드
 
-모든 데이터 I/O는 [src/repo/](src/repo/) 아래 repo를 경유한다 (`accountsRepo`, `productsRepo`, `manufacturersRepo`, `influencersRepo`, `emailAccountsRepo`, `sentLogRepo`, `repliesRepo`, `leadsRepo`, `catalogsRepo`, `employeesRepo`, `phrasesRepo`).
+모든 데이터 I/O는 [src/repo/](src/repo/) 아래 repo를 경유한다 (`accountsRepo`, `productsRepo`, `manufacturersRepo`, `influencersRepo`, `emailAccountsRepo`, `sentLogRepo`, `repliesRepo`, `leadsRepo`, `catalogsRepo`, `employeesRepo`, `phrasesRepo`, `partsRepo`).
 
 - **기본 모드: Postgres(Railway)** — `DB_MODE=pg`. 접속은 `DATABASE_URL` 하나(Railway Variables는 내부 주소, 로컬 `.env`는 Railway의 `DATABASE_PUBLIC_URL` 값). 각 repo의 `*Pg()` 함수가 `pg`로 직접 SQL을 실행한다.
 - **롤백 모드: JSON** — `DB_MODE=json` 환경변수로 기존 JSON 파일 I/O 복귀. 각 repo가 `config.USE_DB` 플래그로 내부 분기(`config.USE_SUPABASE`는 하위 호환 별칭).
@@ -123,7 +132,7 @@ UI에서 "발송 시작"을 누르면 [server.js](server.js)가 `node src/index.
 - `reply_runs` + `replies` (인포크 확인)
 - `leads` (답장 온 인플루언서 추적 — replied_at/proposal_sent_at/remind_at/final_status)
 - `catalogs` (인플루언서 맞춤 추천 카탈로그 — code/product_ids/view_count)
-- `employees` + `phrases` (직원 / 직원별 자주 쓰는 문구), `settings`(미사용, 설정은 settings.json), `cafe24_tokens`(카페24 OAuth 토큰)
+- `employees`(직원 겸 로그인 계정 — [요청] Railway 전환 2단계 참고) + `phrases`(직원별 자주 쓰는 문구), `parts` + `employee_parts`(공동구매 파트, M:N), `notifications`(파트별 알림, 정의만·미사용), `settings`(미사용, 설정은 settings.json), `cafe24_tokens`(카페24 OAuth 토큰)
 - SQL 함수: `increment_weekly_count(account_id, week_key)` / `adjust_weekly_count(account_id, week_key, delta)` — 원자적 카운터 증감
 - SQL 함수: `get_catalog_by_code(p_code)` — 공개 카탈로그 1건 조회(view_count 자동 증가). `catalogsRepo.getPublicByCode()`가 호출.
 - RLS·anon 역할 없음. DB 접근은 서버(`DATABASE_URL`)뿐이고, 외부 노출 경로는 `/api/public/catalog/:code` 하나다.
@@ -149,6 +158,8 @@ UI에서 "발송 시작"을 누르면 [server.js](server.js)가 `node src/index.
 - `replies.json`: `{checkedAt, partial, results[]}`
 - `leads.json`: `{leads: [{id, nickname, profileUrl, interestedProductName, suitableProductNote, repliedAt, proposalSentAt, remindAt, finalStatus, notes, ...}]}`
 - `catalogs.json`: `{catalogs: [{id, code, title, influencerNickname, leadId, productIds[], viewCount, viewedAt, createdAt}]}` (JSON 모드에서도 공개 페이지가 동작 — `catalogsRepo.getPublicByCodeJson()`이 제품을 조립)
+- `employees.json`: `{employees: [{id, name, sortOrder, createdAt, loginId, passwordHash, role, active, lastLoginAt, partIds[]}]}` ([요청] Railway 전환 2단계 — `loginId`가 없으면 문구 탭 전용 이름, 있으면 로그인 계정)
+- `parts.json`: `{parts: [{id, code, name, sortOrder, active}]}` (최초 조회 시 영업/CS/정산 3종 자동 시드)
 
 ### 설정 파일 (양쪽 모드 공통)
 

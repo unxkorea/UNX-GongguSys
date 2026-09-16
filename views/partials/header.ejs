@@ -5,6 +5,8 @@
     <%# [요청] C단계 — goToRepliesTab() 대신 링크 이동 -%>
     <a class="status-badge" id="headerReplyBadge" href="/replies"
        style="display:none;background:rgba(99,102,241,0.9);cursor:pointer;text-decoration:none;color:#fff"></a>
+    <!-- [요청] Railway 전환 2단계 — 로그인한 사람 이름/역할 표시. nav.js의 loadCurrentUser()가 채움. -->
+    <div class="status-badge" id="headerUser" style="display:none"></div>
     <div class="status-badge" id="headerStatus">준비</div>
     <%# [요청] C단계 — goToSettings() 대신 링크 이동 -%>
     <a class="status-badge" id="headerSettings" href="/settings" title="계정 관리"

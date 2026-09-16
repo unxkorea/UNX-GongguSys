@@ -1,5 +1,6 @@
 const express = require('express');
 const session = require('express-session');
+const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -7,6 +8,11 @@ const multer = require('multer');
 const cron = require('node-cron');
 const config = require('./config');
 const accountManager = require('./src/accountManager');
+// [요청] Railway 전환 2단계 — 관리자 개별 계정(ID/PW) + 역할·파트
+const employeesRepo = require('./src/repo/employeesRepo');
+const partsRepo = require('./src/repo/partsRepo');
+const guard = require('./src/auth/guard');
+const authState = require('./src/auth/state');
 
 const app = express();
 // [요청] 외부 배포 — PORT를 env로 지원 (기본 3000)
@@ -21,14 +27,12 @@ app.set('views', path.join(__dirname, 'views'));
 // [요청] 외부 배포 — 세션 기반 비밀번호 인증
 //   - settings.adminPassword가 비어있으면 auth 비활성 (로컬 전용 운영 시)
 //   - 값이 있으면 /login 통과 전까지 모든 경로 차단
-const SETTINGS_PATH_SRV = path.join(__dirname, 'settings.json');
-function readSettingsSrv() {
-  try { return JSON.parse(fs.readFileSync(SETTINGS_PATH_SRV, 'utf-8')); }
-  catch { return {}; }
-}
-// session secret: settings.json의 값이 없으면 프로세스 시작 시 1회 랜덤 생성
-// (재시작 시 세션 무효화되어 모든 사용자 재로그인 필요 — 의도된 동작)
-const SESSION_SECRET = readSettingsSrv().sessionSecret || crypto.randomBytes(32).toString('hex');
+// [요청] Railway 전환 2단계 — src/auth/state.js로 이전(guard.js와 공유). 호출부 변경 최소화를 위해 별칭 유지.
+const readSettingsSrv = authState.readSettings;
+// session secret: env SESSION_SECRET → settings.json → 없으면 프로세스 시작 시 1회 랜덤 생성
+// (랜덤 생성 시 재시작마다 세션 무효화되어 모든 사용자 재로그인 필요. Railway처럼 재배포가 잦은 환경은
+//  [요청] Railway 전환 2단계 — SESSION_SECRET 환경변수로 고정하는 것을 권장)
+const SESSION_SECRET = process.env.SESSION_SECRET || readSettingsSrv().sessionSecret || crypto.randomBytes(32).toString('hex');
 app.use(session({
   secret: SESSION_SECRET,
   resave: false,
@@ -40,13 +44,39 @@ app.use(session({
   },
 }));
 
+// [요청] Railway 전환 2단계 — 활성 로그인 계정(개인 ID/PW) 존재 여부 캐시(src/auth/state.js, guard.js와 공유).
+//   authRequired는 매 요청 동기 호출이라 DB를 매번 조회하지 않고, 30초 주기 + 계정 변경 직후 갱신되는
+//   캐시를 본다. DB 조회 실패(재시작 직후 등) 시에는 이전 값을 유지하고 콘솔에만 남긴다.
+authState.refreshLoginAccountsCache();
+setInterval(authState.refreshLoginAccountsCache, 30000);
+
+// [요청] Railway 전환 2단계 — 최초 관리자 부트스트랩. 활성 로그인 계정이 0개이고 env가 있을 때만 1회 생성(멱등).
+async function bootstrapAdminIfNeeded() {
+  const initId = process.env.ADMIN_INIT_ID;
+  const initPw = process.env.ADMIN_INIT_PW;
+  if (!initId || !initPw) return;
+  try {
+    if ((await employeesRepo.countActiveLoginAccounts()) > 0) return;
+    const created = await employeesRepo.createBootstrapAdmin(initId, initPw, 'Admin');
+    if (created) {
+      console.log(`[auth] 최초 관리자 계정 생성됨: ${initId}`);
+      await authState.refreshLoginAccountsCache();
+    }
+  } catch (e) { console.warn('[auth] 관리자 부트스트랩 실패:', e.message); }
+}
+bootstrapAdminIfNeeded();
+
 function authRequired(req, res, next) {
+  // [요청] Railway 전환 2단계 — 로컬 개발 편의 우회
+  if (process.env.AUTH_DISABLED === 'true') return next();
   // [요청] Vercel 직원용 배포 — 서버리스(process.env.VERCEL)에선 인증 스킵.
   //   직원은 링크만으로 바로 이용. 세션이 무상태 환경에서 안 살아남는 문제도 회피.
   //   ⚠️ Vercel URL을 아는 사람은 누구나 접근 가능(공개 인터넷). 권한 분리는 후속 작업(메모 참조).
   if (process.env.VERCEL) return next();
+  // [요청] Railway 전환 2단계 — 단일 비밀번호(과도기) 또는 활성 로그인 계정 중 하나라도 있으면 인증 필요
   const password = readSettingsSrv().adminPassword;
-  if (!password) return next();                     // 비번 미설정 → auth 비활성
+  const needsAuth = !!password || authState.hasLoginAccounts();
+  if (!needsAuth) return next();                     // 아무 인증 수단도 없음 → 로컬 전용 운영
   if (req.path === '/favicon.ico') return next();   // favicon은 인증 없이 허용 (로그인 페이지 탭 아이콘)
   if (req.path.startsWith('/recommend')) return next(); // [요청] 추천 카탈로그 공개 페이지 — 링크만 있으면 인증 없이 열람
   if (req.path.startsWith('/api/public/')) return next(); // [요청] Railway 전환 1단계 — 공개 카탈로그 API (anon 키 RPC 대체)
@@ -68,27 +98,72 @@ app.get('/login', (req, res) => {
 app.get('/privacy', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'privacy.html'));
 });
-app.post('/api/login', (req, res) => {
-  const { password } = req.body || {};
-  const expected = readSettingsSrv().adminPassword;
-  if (!expected) {                                  // 비번 미설정 — 누구든 통과
-    req.session.authenticated = true;
-    return res.json({ ok: true });
+
+// [요청] Railway 전환 2단계 — 로그인 시도 제한 (IP당 15분에 20회). Railway는 프록시 뒤라 trust proxy를
+//   설정하지 않아 req.ip가 프록시 IP로 잡힐 수 있음(=버킷이 넓게 공유됨) — 그래도 무차별 대입 완화 목적엔 충분.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'too_many_attempts' },
+});
+
+app.post('/api/login', loginLimiter, async (req, res) => {
+  try {
+    const { loginId, password } = req.body || {};
+    // [요청] Railway 전환 2단계 — 개인 계정 로그인 (loginId가 오면 이 경로 우선)
+    if (loginId) {
+      const emp = await employeesRepo.findByLoginId(loginId);
+      const ok = emp && emp.active && await employeesRepo.verifyPassword(emp.passwordHash, password || '');
+      if (!ok) return res.status(401).json({ error: 'invalid_credentials' });
+      let parts = [];
+      if (emp.role !== 'admin' && emp.partIds.length) {
+        const allParts = await partsRepo.list();
+        const byId = new Map(allParts.map(p => [p.id, p.code]));
+        parts = emp.partIds.map(id => byId.get(id)).filter(Boolean);
+      }
+      req.session.authenticated = true;
+      req.session.employeeId = emp.id;
+      req.session.loginId = emp.loginId;
+      req.session.name = emp.name;
+      req.session.role = emp.role;
+      req.session.parts = parts;
+      employeesRepo.touchLastLogin(emp.id).catch(() => {});
+      return res.json({ ok: true });
+    }
+    // 레거시 단일 비밀번호 (개별 계정 전환 중 과도기 지원 — 2단계 마무리 시 제거 예정)
+    const expected = readSettingsSrv().adminPassword;
+    if (!expected) {                                  // 비번 미설정 — 누구든 통과
+      req.session.authenticated = true;
+      req.session.role = 'admin';
+      return res.json({ ok: true });
+    }
+    if (password && password === expected) {
+      req.session.authenticated = true;
+      req.session.employeeId = null;
+      req.session.loginId = null;
+      req.session.name = null;
+      req.session.role = 'admin';
+      req.session.parts = [];
+      return res.json({ ok: true });
+    }
+    return res.status(401).json({ error: 'invalid_password' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
-  if (password && password === expected) {
-    req.session.authenticated = true;
-    return res.json({ ok: true });
-  }
-  return res.status(401).json({ error: 'invalid_password' });
 });
 app.post('/api/logout', (req, res) => {
   req.session.destroy(() => res.json({ ok: true }));
 });
 app.get('/api/auth/status', (req, res) => {
-  const needsAuth = !!readSettingsSrv().adminPassword;
+  const needsAuth = !!readSettingsSrv().adminPassword || authState.hasLoginAccounts();
+  const user = guard.currentUser(req);
   res.json({
     needsAuth,
-    authenticated: !needsAuth || !!(req.session && req.session.authenticated),
+    authenticated: !needsAuth || !!user,
+    // [요청] Railway 전환 2단계 — 헤더에 로그인한 사람 표시 + 화면단 role 분기용
+    user: user ? { name: user.name, loginId: user.loginId, role: user.role, parts: user.parts } : null,
   });
 });
 
@@ -151,7 +226,8 @@ const UI_PAGES = [
   }],
   ['/settings', {
     title: '설정', active: '', activeSub: '', page: 'settings',
-    scripts: ['accounts.js', 'phrases.js', 'settings.js'], modals: [],
+    // [요청] Railway 전환 2단계 — 계정/파트 관리(accountsAdmin.js)는 phrases.js의 employees 배열을 재사용하므로 그 뒤에 로드
+    scripts: ['accounts.js', 'phrases.js', 'accountsAdmin.js', 'settings.js'], modals: [],
   }],
 ];
 UI_PAGES.forEach(([route, opts]) => {
@@ -189,7 +265,8 @@ app.get('/api/settings', (req, res) => {
   res.json(readSettings());
 });
 
-app.put('/api/settings', (req, res) => {
+// [요청] Railway 전환 2단계 — 설정 변경(비밀번호·headless·BCC 등)은 admin 전용
+app.put('/api/settings', guard.requireRole('admin'), (req, res) => {
   const current = readSettings();
   const updated = { ...current, ...req.body };
   writeSettings(updated);
@@ -276,7 +353,8 @@ app.get('/api/gmail/status', (req, res) => {
   res.json({ configured: gmailApi.isConfigured() });
 });
 
-app.get('/api/gmail/auth', async (req, res) => {
+// [요청] Railway 전환 2단계 — Google 계정 연결/해제는 admin 전용
+app.get('/api/gmail/auth', guard.requireRole('admin'), async (req, res) => {
   if (!gmailApi.isConfigured()) return res.status(400).send('GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET 환경변수가 필요합니다.');
   const accountId = Number(req.query.accountId);
   const acc = Number.isInteger(accountId) ? await emailAccountsRepo.findById(accountId) : null;
@@ -309,7 +387,7 @@ app.get('/api/gmail/callback', async (req, res) => {
   }
 });
 
-app.post('/api/gmail/disconnect', async (req, res) => {
+app.post('/api/gmail/disconnect', guard.requireRole('admin'), async (req, res) => {
   try {
     const { id } = req.body || {};
     await emailAccountsRepo.setGoogleToken(Number(id), null);
@@ -320,7 +398,8 @@ app.post('/api/gmail/disconnect', async (req, res) => {
   }
 });
 
-app.put('/api/emailAccounts', async (req, res) => {
+// [요청] Railway 전환 2단계 — Gmail 계정 저장/발송 인증 정보 변경은 admin 전용
+app.put('/api/emailAccounts', guard.requireRole('admin'), async (req, res) => {
   try {
     await emailAccountsRepo.replaceAll(req.body);
     res.json({ ok: true });
@@ -329,7 +408,7 @@ app.put('/api/emailAccounts', async (req, res) => {
   }
 });
 
-app.post('/api/emailAccounts/verify', async (req, res) => {
+app.post('/api/emailAccounts/verify', guard.requireRole('admin'), async (req, res) => {
   const { id } = req.body || {};
   const { findEmailAccount, verifyTransport } = require('./src/emailSender');
   const acc = await findEmailAccount(id);
@@ -1105,12 +1184,12 @@ app.delete('/api/catalogs/:id', async (req, res) => {
 
 // ─── 직원 / 자주 사용하는 문구 API ───
 // [요청] 자주 사용하는 문구 — 직원별 추가/복사 탭 신설
-const employeesRepo = require('./src/repo/employeesRepo');
+// [요청] Railway 전환 2단계 — employees가 로그인 계정도 겸함. 응답은 항상 toPublic()으로 passwordHash 제거.
 const phrasesRepo = require('./src/repo/phrasesRepo');
 
 app.get('/api/employees', async (req, res) => {
   try {
-    res.json(await employeesRepo.list());
+    res.json((await employeesRepo.list()).map(employeesRepo.toPublic));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -1119,7 +1198,7 @@ app.get('/api/employees', async (req, res) => {
 app.post('/api/employees', async (req, res) => {
   try {
     const created = await employeesRepo.insertOne(req.body);
-    res.json({ ok: true, employee: created });
+    res.json({ ok: true, employee: employeesRepo.toPublic(created) });
   } catch (e) {
     if (e.code === 'NAME_REQUIRED') return res.status(400).json({ error: '직원 이름은 필수입니다.' });
     res.status(500).json({ error: e.message });
@@ -1129,7 +1208,7 @@ app.post('/api/employees', async (req, res) => {
 app.put('/api/employees/:id', async (req, res) => {
   try {
     const updated = await employeesRepo.updateOne(req.params.id, req.body);
-    res.json({ ok: true, employee: updated });
+    res.json({ ok: true, employee: employeesRepo.toPublic(updated) });
   } catch (e) {
     if (e.code === 'NAME_REQUIRED') return res.status(400).json({ error: '직원 이름은 필수입니다.' });
     if (e.code === 'NOT_FOUND') return res.status(404).json({ error: '직원을 찾을 수 없습니다.' });
@@ -1137,12 +1216,86 @@ app.put('/api/employees/:id', async (req, res) => {
   }
 });
 
-// 직원 삭제 시 해당 직원 문구도 함께 삭제됨(Supabase on delete cascade / JSON 모드는 repo가 정리).
-app.delete('/api/employees/:id', async (req, res) => {
+// 직원 삭제 시 해당 직원 문구·파트 배정도 함께 삭제됨(DB는 on delete cascade / JSON 모드는 repo가 정리).
+// [요청] Railway 전환 2단계 — admin 전용. 마지막 활성 admin 계정은 삭제 불가(employeesRepo가 LAST_ADMIN으로 막음).
+app.delete('/api/employees/:id', guard.requireRole('admin'), async (req, res) => {
   try {
     await employeesRepo.removeOne(req.params.id);
     res.json({ ok: true });
   } catch (e) {
+    if (e.code === 'LAST_ADMIN') return res.status(400).json({ error: '마지막 관리자 계정은 삭제할 수 없습니다.' });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// [요청] Railway 전환 2단계 — 직원에게 로그인 ID/PW·역할·활성 부여(=계정으로 전환). admin 전용.
+//   password를 비우면 기존 비밀번호를 유지한 채 role/active/loginId만 바꿀 수 있다.
+app.put('/api/employees/:id/account', guard.requireRole('admin'), async (req, res) => {
+  try {
+    const { loginId, password, role, active } = req.body || {};
+    if (loginId != null && !String(loginId).trim()) return res.status(400).json({ error: '로그인 ID를 입력해주세요.' });
+    const updated = await employeesRepo.setAccount(req.params.id, { loginId, password, role, active });
+    authState.refreshLoginAccountsCache();
+    res.json({ ok: true, employee: employeesRepo.toPublic(updated) });
+  } catch (e) {
+    if (e.code === 'NOT_FOUND') return res.status(404).json({ error: '직원을 찾을 수 없습니다.' });
+    if (e.code === 'DUPLICATE_LOGIN_ID') return res.status(409).json({ error: '이미 사용 중인 로그인 ID입니다.' });
+    if (e.code === 'INVALID_ROLE') return res.status(400).json({ error: '역할은 admin 또는 staff만 가능합니다.' });
+    if (e.code === 'LAST_ADMIN') return res.status(400).json({ error: '마지막 관리자 계정은 강등·비활성화할 수 없습니다.' });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// [요청] Railway 전환 2단계 — 직원-파트 배정 전체 교체(중복 부여 = 배열에 여러 파트 id). admin 전용.
+app.put('/api/employees/:id/parts', guard.requireRole('admin'), async (req, res) => {
+  try {
+    const partIds = Array.isArray(req.body?.partIds) ? req.body.partIds : [];
+    const updated = await employeesRepo.setEmployeeParts(req.params.id, partIds);
+    res.json({ ok: true, employee: employeesRepo.toPublic(updated) });
+  } catch (e) {
+    if (e.code === 'NOT_FOUND') return res.status(404).json({ error: '직원을 찾을 수 없습니다.' });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── 공동구매 파트 API ───
+// [요청] Railway 전환 2단계 — 영업/CS/정산 등. 조회는 로그인한 누구나, 추가/변경은 admin 전용.
+app.get('/api/parts', async (req, res) => {
+  try {
+    res.json(await partsRepo.list());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/parts', guard.requireRole('admin'), async (req, res) => {
+  try {
+    const created = await partsRepo.insertOne(req.body?.name);
+    res.json({ ok: true, part: created });
+  } catch (e) {
+    if (e.code === 'NAME_REQUIRED') return res.status(400).json({ error: '파트 이름은 필수입니다.' });
+    if (e.code === 'DUPLICATE_NAME') return res.status(409).json({ error: '이미 있는 파트 이름입니다.' });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/api/parts/:id', guard.requireRole('admin'), async (req, res) => {
+  try {
+    const updated = await partsRepo.rename(req.params.id, req.body?.name);
+    res.json({ ok: true, part: updated });
+  } catch (e) {
+    if (e.code === 'NAME_REQUIRED') return res.status(400).json({ error: '파트 이름은 필수입니다.' });
+    if (e.code === 'NOT_FOUND') return res.status(404).json({ error: '파트를 찾을 수 없습니다.' });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/parts/:id/active', guard.requireRole('admin'), async (req, res) => {
+  try {
+    const updated = await partsRepo.setActive(req.params.id, req.body?.active);
+    res.json({ ok: true, part: updated });
+  } catch (e) {
+    if (e.code === 'NOT_FOUND') return res.status(404).json({ error: '파트를 찾을 수 없습니다.' });
     res.status(500).json({ error: e.message });
   }
 });

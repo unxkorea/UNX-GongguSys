@@ -445,3 +445,60 @@ create table if not exists cafe24_tokens (
 -- 카페24에서 가져온 제품 식별자 — 재가져오기 시 중복 생성 대신 갱신(매칭 키)
 alter table products add column if not exists cafe24_product_no int;
 create index if not exists idx_products_cafe24_no on products(cafe24_product_no);
+
+------------------------------------------------------------
+-- 14. 관리자 개별 계정(ID/PW) + 역할·파트
+--   [요청] Railway 전환 2단계 — settings.json의 단일 공용 비밀번호 → 개인별 로그인.
+--   - employees 테이블을 그대로 로그인 계정으로 확장(향후 재사용 의도와 일치). login_id가 없는
+--     employee는 지금처럼 "문구 탭 전용 이름"으로만 남고, admin이 계정으로 전환(로그인ID/PW 부여)할 수 있다.
+--   - role: 'admin'(모든 파트 접근) / 'staff'(부여된 파트만). active=false면 로그인 불가.
+--   - parts: 공동구매 파트(영업/CS/정산 등). admin이 파트를 추가·이름변경·비활성 가능.
+--   - employee_parts: 직원-파트 M:N. 같은 직원이 여러 파트를 가질 수 있음(중복 부여).
+--   - notifications: 파트별 대시보드 알림에 쓸 테이블 정의만 미리 둠(사용 코드는 후속 요청).
+------------------------------------------------------------
+alter table employees add column if not exists login_id       text unique;
+alter table employees add column if not exists password_hash  text;
+alter table employees add column if not exists role           text not null default 'staff';
+alter table employees add column if not exists active         boolean not null default true;
+alter table employees add column if not exists last_login_at  timestamptz;
+
+alter table employees drop constraint if exists employees_role_check;
+alter table employees add constraint employees_role_check check (role in ('admin', 'staff'));
+
+create table if not exists parts (
+  id          serial      primary key,
+  code        text        not null unique,
+  name        text        not null,
+  sort_order  int         not null default 0,
+  active      boolean     not null default true,
+  created_at  timestamptz not null default now()
+);
+
+-- 초기 파트 3종. 이미 있으면(재실행) 무시.
+insert into parts (code, name, sort_order) values
+  ('sales', '영업', 1),
+  ('cs', 'CS', 2),
+  ('settlement', '정산', 3)
+on conflict (code) do nothing;
+
+create table if not exists employee_parts (
+  employee_id  int  not null references employees(id) on delete cascade,
+  part_id      int  not null references parts(id) on delete cascade,
+  primary key (employee_id, part_id)
+);
+
+-- [요청] Railway 전환 3단계에서 사용 예정 — 파트별/직원별 알림. 정의만 미리 둠(코드에서는 아직 미사용).
+create table if not exists notifications (
+  id           bigserial   primary key,
+  part_id      int         references parts(id) on delete cascade,
+  employee_id  int         references employees(id) on delete cascade,
+  type         text        not null,
+  title        text        not null,
+  body         text,
+  link         text,
+  read_at      timestamptz,
+  created_at   timestamptz not null default now()
+);
+
+create index if not exists idx_notifications_employee on notifications(employee_id, created_at desc);
+create index if not exists idx_notifications_part      on notifications(part_id, created_at desc);

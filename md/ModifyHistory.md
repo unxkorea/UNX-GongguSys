@@ -6,16 +6,6 @@
 
 [ 요청사항 ]
 
-## Gmail API 발송 전환 — Railway SMTP 차단 우회 (HTTPS)
-Railway Hobby 플랜은 아웃바운드 SMTP(25/465/587)를 차단해 nodemailer Gmail 발송이 `Connection timeout`으로 실패한다(2026-09-16 확인, 인포크 발송·확인은 HTTPS라 무영향). 플랜 업그레이드 대신 **같은 Gmail 계정으로 Gmail API(HTTPS)** 를 통해 발송하도록 교체. 앱 비밀번호 대신 Google OAuth 토큰을 DB에 저장하고, 카페24처럼 설정 화면에서 한 번 "Google 연결"로 인증한다. 로컬 SMTP 경로는 폴백으로 유지.
-
-
-## [Railway 전환 2단계] 관리자 개별 계정(ID/PW) + 역할·파트 부여
-현재 `settings.json`의 단일 공용 비밀번호 하나로 진입. 관리자 개별 ID/PW 로그인으로 전환.
-- `admin` / `staff` 두 역할. admin은 모든 공동구매 파트 접근 가능.
-- 공동구매 파트(영업 / CS / 정산 등)를 admin이 각 staff에게 부여. **중복 부여 가능**. 파트 목록은 admin이 추가/수정 가능해야 함.
-- 파트 정보는 추후 대시보드 알림(파트별 알림 라우팅)에 사용 예정 — 이번엔 데이터 구조만 준비.
-
 ## [Railway 전환 3단계] 활동 로그 공통 모듈 — 접속/CRUD/에러 전부 기록 + 관리자 트래킹 UI
 admin/staff 각 계정이 로그인 후 접속한 메뉴, 수행한 CRUD, 발생한 에러를 **모두** 로그로 저장. 관리자가 UI에서 계정별·기간별·유형별로 추적 가능. 로깅은 공통 모듈로 만들어 server.js·매크로(index.js/checkReplies.js)·cron 어디서든 같은 방식으로 호출.
 
@@ -43,31 +33,6 @@ admin/staff 각 계정이 로그인 후 접속한 메뉴, 수행한 CRUD, 발생
 - 갈피 잡히면 위 옵션 중 하나(또는 별안)로 정식 요청 예정. 그 전까진 코드 수정 없음.
 
 [ 실행계획 ]
-
-### Gmail API 발송 전환 — 실행계획
-**전제(사용자 작업, Google Cloud Console)**: ① 프로젝트 생성 → "Gmail API" 사용 설정 ② OAuth 동의 화면: User Type=외부, 게시 상태를 **"프로덕션"으로 전환**(테스트 상태면 refresh token이 7일마다 만료됨. 미인증 앱 경고 화면은 "고급 → 이동"으로 통과 가능, 발송 계정 1개만 쓰므로 인증 심사 불필요) ③ 사용자 인증 정보 → OAuth 클라이언트 ID(웹 애플리케이션), 승인된 리디렉션 URI에 `https://unx-gonggusys-production.up.railway.app/api/gmail/callback` 와 `http://localhost:3000/api/gmail/callback` 등록 ④ 클라이언트 ID/보안 비밀을 Railway Variables와 로컬 .env에 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`으로 추가. 스코프는 `gmail.send` 하나만 요청.
-1. **스키마** [scripts/schema.pg.sql](../scripts/schema.pg.sql): `email_accounts`에 `google_refresh_token text`, `google_connected_at timestamptz` 추가(멱등 ALTER). JSON 모드는 `emailAccounts.json`의 `googleRefreshToken` 필드. `app_password`는 폴백용으로 유지.
-2. **OAuth 모듈** `src/gmailApi.js` (의존성 추가 없음, Node 20 fetch):
-   - `getAuthUrl(accountId, redirectUri, state)` — `access_type=offline&prompt=consent`(refresh token 확실히 수령).
-   - `exchangeCode(code, redirectUri)` → refresh token + id_token. **id_token의 email이 해당 email_accounts.email과 일치할 때만 저장**(다른 구글 계정으로 잘못 연결 방지).
-   - `getAccessToken(account)` — refresh token으로 access token 발급, 프로세스 메모리 캐시(만료 60초 전 갱신).
-   - `sendRaw(account, rfc822Buffer)` — `POST https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send?uploadType=media` (Content-Type `message/rfc822`). 업로드 엔드포인트라 첨부 포함 35MB까지 가능. 401이면 토큰 1회 재발급 후 재시도, `invalid_grant`면 `NOT_CONNECTED` 에러(재연결 안내).
-3. **발송 경로** [src/emailSender.js](../src/emailSender.js): 기존 `mailOptions`(from/to/subject/html/attachments cid/bcc) 조립 코드는 그대로 두고, 전송만 분기 — 계정에 `googleRefreshToken`이 있으면 nodemailer의 `MailComposer`로 RFC822 생성(URL·로컬 경로 첨부, cid 인라인 모두 지원) → `gmailApi.sendRaw`; 없으면 기존 SMTP. Bcc는 raw 메시지의 Bcc 헤더로 Gmail API가 처리. 로그에 `[메일][API]`/`[메일][SMTP]` 표기.
-4. **서버 라우트** [server.js](../server.js): `GET /api/gmail/auth?accountId=` → 동의 화면 리다이렉트(state에 accountId+nonce, 세션 저장) / `GET /api/gmail/callback` → 코드 교환·이메일 일치 검증·저장 → 설정 탭으로 리다이렉트 / `POST /api/gmail/disconnect` / `GET /api/gmail/status` (계정별 연결 여부). 리디렉션 URI는 카페24와 같은 `x-forwarded-proto` 기반 조립 재사용. 기존 `POST /api/emailAccounts/verify`는 API 연결 계정이면 `users/me/profile` 호출로 검증.
-5. **repo** [src/repo/emailAccountsRepo.js](../src/repo/emailAccountsRepo.js): `list()`에 `googleRefreshToken`(마스킹 없이 서버 내부용) + `googleConnected` 불리언 노출, `setGoogleToken(id, refreshToken|null)` 추가. **API 응답(`GET /api/emailAccounts`)에는 토큰을 내보내지 않고 `googleConnected`만** 내려준다.
-6. **UI** 설정 탭 Gmail 계정 카드([views/pages/settings.ejs](../views/pages/settings.ejs) + `public/js/emailAccounts.js`): "Google 연결됨 ✓ (연결 해제)" / "Google 연결" 버튼. 앱 비밀번호 입력란은 "로컬 SMTP 폴백용(선택)"으로 라벨 변경. 발송 탭 Gmail 계정 선택에 연결 상태 뱃지.
-7. **검증**: 로컬에서 Google 연결 → 로컬 dry-run → Railway 배포 → Railway UI에서 본인 주소로 1건 실발송(첨부 이미지 cid·서명 이미지·BCC 수신 확인) → 대기 중인 실제 2건 발송.
-- 산출물: `src/gmailApi.js`, `src/emailSender.js`, `src/repo/emailAccountsRepo.js`, `server.js`, `scripts/schema.pg.sql`, 설정 탭 뷰/JS, CLAUDE.md 갱신(발송 경로·환경변수).
-
-
-### [Railway 전환 2단계] 개별 계정 + 역할·파트 — 실행계획
-1. **스키마**: `employees`에 `login_id text unique`, `password_hash text`, `role text check(role in ('admin','staff')) default 'staff'`, `active bool default true`, `last_login_at timestamptz` 추가. 신규 `parts(id, code unique, name, sort_order, active)`(초기값: 영업/CS/정산), `employee_parts(employee_id, part_id, primary key(employee_id, part_id))` M:N — 중복 부여는 이 테이블 행 수로 표현. admin은 행 없이도 전 파트 접근(코드에서 판단).
-2. **인증**: `bcrypt`, `express-rate-limit` 추가. `POST /api/login`이 `{loginId, password}` 수신 → 해시 비교 → 세션에 `{employeeId, loginId, role}`만 저장. 로그인 라우트에 rate limit(IP당 10회/15분). 세션 시크릿은 `SESSION_SECRET` env 우선(없으면 기존 랜덤 생성 유지).
-3. **부트스트랩**: 활성 계정 0개일 때 `ADMIN_INIT_ID`/`ADMIN_INIT_PW` env로 최초 admin 자동 생성. 인증 on/off 판정을 "adminPassword 존재"에서 "활성 계정 존재"로 변경, 로컬 개발용 `AUTH_DISABLED=true` 우회 추가. 전환기에는 `settings.adminPassword` 로그인도 병행 허용 → 계정 확인 후 제거(별도 마무리 커밋).
-4. **권한 미들웨어** `src/auth/guard.js`: `requireLogin`, `requireRole('admin')`, `requirePart('정산')`(admin 통과). 우선 admin 전용으로 잠글 곳: 계정·파트 관리, 설정 변경, 3단계 로그 조회, 4단계 파일 삭제.
-5. **UI**: [public/login.html](../public/login.html)에 ID 입력칸. 설정 탭에 "계정 관리" 서브탭(admin 전용) — 직원 목록에 login_id/역할/활성/파트 체크박스(다중), 비밀번호 초기화, 파트 목록 관리(추가/이름 변경/비활성). 헤더에 로그인한 사람 이름·역할 표시 + 로그아웃.
-6. **알림 대비**: `notifications(id, part_id null, employee_id null, type, title, body, link, read_at, created_at)` 테이블 정의만 schema에 포함(사용 코드는 추후 요청 시).
-- 산출물: `scripts/schema.pg.sql`, `src/repo/employeesRepo.js`(확장), `src/repo/partsRepo.js`, `src/auth/guard.js`, `server.js`, `public/login.html`, `views/pages/settings.ejs` + `public/js/accounts.js`, CLAUDE.md 갱신.
 
 ### [Railway 전환 3단계] 활동 로그 공통 모듈 — 실행계획
 1. **테이블** `activity_logs(id bigserial, at timestamptz, level text('info'|'warn'|'error'), source text('web'|'macro'|'cron'|'system'), employee_id int null, login_id text null, action text, method text, path text, target_type text, target_id text, detail jsonb, status int, duration_ms int, ip text, user_agent text, request_id text, error_message text, error_stack text)`. 인덱스: `(at desc)`, `(employee_id, at desc)`, `(level, at desc)`, `(action, at desc)`.
@@ -97,6 +62,29 @@ admin/staff 각 계정이 로그인 후 접속한 메뉴, 수행한 CRUD, 발생
 
 
 [ 작업완료 ]
+## [Railway 전환 2단계] 관리자 개별 계정(ID/PW) + 역할·파트 부여 (26.09.16)
+`settings.json`의 단일 공용 비밀번호 하나로 진입하던 구조를 관리자 개별 ID/PW 로그인으로 전환. 레거시 단일 비밀번호는 과도기 지원으로 계속 동작(둘 중 하나만 있어도 인증 필요).
+- **스키마 [scripts/schema.pg.sql](../scripts/schema.pg.sql)**: `employees`에 `login_id`(unique)/`password_hash`/`role`('admin'|'staff', check 제약)/`active`/`last_login_at` 추가. 신규 `parts`(공동구매 파트, 초기값 영업/CS/정산 3종 시드) + `employee_parts`(직원-파트 M:N — **중복 부여는 이 테이블 행 수로 표현**, admin은 행 없이도 전 파트 접근). `notifications`(파트별/직원별 알림) 테이블은 3단계 이후 사용 예정으로 정의만 미리 둠.
+- **repo**: [src/repo/employeesRepo.js](../src/repo/employeesRepo.js)에 `setAccount()`(로그인ID/PW/역할/활성 부여, password 생략 시 기존 해시 유지, bcryptjs 해시), `setEmployeeParts()`, `findByLoginId()`, `touchLastLogin()`, `countActiveLoginAccounts()`, `createBootstrapAdmin()`, `verifyPassword()`, `toPublic()`(passwordHash 응답 제거) 추가 — **마지막 활성 admin 계정은 삭제·강등·비활성화 불가**(`LAST_ADMIN`). 신규 [src/repo/partsRepo.js](../src/repo/partsRepo.js). 둘 다 JSON 모드 동등 구현(`employees.json`에 필드 추가, 신규 `parts.json` 최초 조회 시 3종 자동 시드).
+- **인증 상태 공유 [src/auth/state.js](../src/auth/state.js)**: `isAuthConfigured()`(비밀번호 또는 활성 계정 존재), `isAuthBypassed()`(AUTH_DISABLED·Vercel·인증 미구성 시 true) — server.js의 `authRequired`와 **guard.js가 동일 판단을 공유**해야 "미들웨어는 통과했는데 개별 admin 라우트에서 401" 같은 불일치가 안 생김. 활성 로그인 계정 존재 여부는 30초 캐시(계정 변경 직후 즉시 갱신).
+- **권한 미들웨어 [src/auth/guard.js](../src/auth/guard.js)**: `requireRole('admin')`, `requirePart(code)` — role이 'admin'이면 무엇이든 통과, 인증 미구성 상태에선 전부 통과(로컬 무인증 운영 하위호환).
+- **로그인 [server.js](../server.js)**: `POST /api/login`이 `{loginId, password}`(개인 계정) 또는 `{password}`(레거시) 모두 처리, 세션에 `{employeeId, loginId, role, parts}` 저장. `express-rate-limit`으로 로그인만 IP당 15분 20회 제한(trust proxy 미설정 — Railway 프록시 뒤에서 버킷이 넓게 공유되지만 무차별 대입 완화 목적엔 충분, 의도적으로 trust proxy 안 켬). `GET /api/auth/status`가 `user:{name,loginId,role,parts}` 반환. 서버 시작 시 `ADMIN_INIT_ID`/`ADMIN_INIT_PW` 환경변수가 있고 활성 계정이 0개면 최초 admin 자동 생성(멱등).
+- **admin 전용으로 잠근 라우트**: 계정/파트 CRUD 전부, `PUT /api/settings`, `PUT /api/emailAccounts`, `POST /api/emailAccounts/verify`, `GET /api/gmail/auth`, `POST /api/gmail/disconnect`.
+- **UI**: [public/login.html](../public/login.html)에 로그인 ID 입력칸(비우면 레거시 시도). 헤더([views/partials/header.ejs](../views/partials/header.ejs))에 로그인한 사람 이름·역할 배지 — [public/js/nav.js](../public/js/nav.js)의 `window.currentUser`/`currentUserReady`가 전 페이지 공통 로드. 설정 탭에 admin에게만 보이는 "공동구매 파트 관리"(추가/이름변경/비활성) + "계정 관리"(직원별 로그인ID/PW/역할/활성/파트 다중 체크박스) 카드 신설 — [public/js/accountsAdmin.js](../public/js/accountsAdmin.js).
+- **검증**: Railway DB에 스키마 적용 후 repo 함수 전체(계정 부여/중복 로그인ID 거부/비밀번호 검증/파트 배정/LAST_ADMIN 보호) 실제 DB로 확인, 로컬 서버로 레거시 로그인→직원 생성→계정 부여→파트 배정→새 계정 로그인→권한 경계(관리자 전용 403, 일반 페이지는 여전히 200) 전 구간 HTTP 테스트 통과, AUTH_DISABLED 우회도 guard 라우트까지 정상 통과 확인.
+- **패키지**: `bcryptjs`(네이티브 빌드 불필요), `express-rate-limit` 추가.
+- **운영 시 필요**: Railway Variables에 `ADMIN_INIT_ID`/`ADMIN_INIT_PW`(최초 관리자 생성용, 생성 후 제거 가능)와 `SESSION_SECRET`(재배포마다 전원 로그아웃되지 않도록) 설정 권장. `settings.json`의 `adminPassword`는 개별 계정 확인 후 비워서 제거하는 별도 마무리 작업 필요(과도기 지원 중이라 지금은 유지).
+
+## Gmail API 발송 전환 — Railway SMTP 차단 우회 (HTTPS) (26.09.16)
+Railway Hobby 플랜의 아웃바운드 SMTP 차단(`Connection timeout`)으로 Gmail 발송이 서버에서 실패하던 문제 해결. 같은 Gmail 계정을 유지한 채 전송 경로만 SMTP → Gmail API(HTTPS)로 교체.
+- **[src/gmailApi.js](../src/gmailApi.js)** 신규: Google OAuth(스코프 `gmail.send` + `openid email`) 토큰 교환·갱신, access token 메모리 캐시(만료 60초 전 갱신), `users/me/messages/send`(uploadType=media)로 RFC822 원문 발송. `invalid_grant`는 `NOT_CONNECTED`로 매핑.
+- **[src/emailSender.js](../src/emailSender.js)**: 계정에 `googleRefreshToken`이 있으면 nodemailer `MailComposer`로 mailOptions(첨부 cid·서명·BCC 그대로)를 RFC822로 컴파일(`keepBcc: true`) 후 Gmail API 전송, 없으면 기존 SMTP. `verifyTransport`도 동일 분기.
+- **[src/repo/emailAccountsRepo.js](../src/repo/emailAccountsRepo.js)**: `google_refresh_token`/`google_connected_at` 컬럼 + `setAccount`처럼 `setGoogleToken()`, HTTP 응답 전 토큰 제거하는 `toPublic()`.
+- **[server.js](../server.js)**: `GET /api/gmail/status|auth`, `GET /api/gmail/callback`, `POST /api/gmail/disconnect` — 카페24와 같은 state 검증 패턴 + **연결한 구글 계정 주소가 등록된 이메일과 다르면 저장 거부**(오연결 방지).
+- **Google Cloud 설정 이슈 2건 해결**: ① OAuth 동의 화면 "테스트" 상태에서는 refresh token이 7일 만료 → **프로덕션 게시** 필요. 게시에는 승인된 도메인 아래의 홈페이지·개인정보처리방침 URL이 필수라 [public/privacy.html](../public/privacy.html) + `GET /privacy`(인증 면제) 신설. ② 인증 URL의 `include_granted_scopes=true` 파라미터가 Google 쪽 500 에러를 유발 → 제거.
+- **UI**: 설정 탭 Gmail 계정 카드에 연결 상태 배너 + "Google 연결/연결 해제" 버튼, 앱 비밀번호는 "로컬 SMTP 폴백용(선택)"으로 라벨 변경, 발송 페이지 계정 선택에 `[API]`/`[SMTP]` 표기.
+- **검증**: Railway 배포 후 kh.undefiance@gmail.com 연결 완료, 연결 테스트 통과, 대기 중이던 실제 메일 2건 API 경로로 발송 성공 확인.
+- schema.pg.sql에 컬럼 추가(멱등), CLAUDE.md 갱신.
 ## [Railway 전환 1단계] Supabase → Railway Postgres DB 이관 (26.09.15)
 메인 DB를 Supabase에서 Railway Postgres로 이관. 코드는 supabase-js 쿼리 빌더를 `pg` 직접 SQL로 전면 교체하고, 데이터는 id 보존 이관 후 검증까지 완료. **사진 파일 본체만 4단계 전까지 Supabase Storage에 남는다.**
 - **DB 레이어 [src/db.js](../src/db.js)**: `pg` Pool 싱글톤 + `query/one/withTx/insertMany/isUniqueViolation`. `DATABASE_URL` 하나로 접속(Railway Variables=내부 주소, 로컬 .env=`DATABASE_PUBLIC_URL` 값). 타입 파서로 `date`→`'YYYY-MM-DD'`, `timestamptz`→ISO 문자열, `int8`→number 고정해 PostgREST 시절 응답 형태를 그대로 유지(리드 날짜가 타임존만큼 하루 밀리는 문제 방지).

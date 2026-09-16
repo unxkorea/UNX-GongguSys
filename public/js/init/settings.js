@@ -6,6 +6,8 @@ loadAccounts();
 loadEmailAccounts();
 // [요청] 직원 관리 카드
 loadEmployees().then(renderEmployeesAdmin);
+// [요청] Railway 전환 2단계 — 계정/파트 관리 카드 (admin만 표시, currentUserReady 확인 후 자체적으로 로드)
+initAccountsAdmin();
 
 // [요청] Gmail API 발송 전환 — Google OAuth 콜백 복귀 처리 (?gmail=connected|error)
 (function handleGmailReturn() {
