@@ -33,8 +33,8 @@
     <article class="modal-content" id="modalContent" role="dialog" aria-modal="true"></article>
   </div>
 
-  <!-- [요청] 추천 카탈로그 페이지 — config.js에 CATALOG_API_BASE 정의 (Railway 전환 1단계) -->
-  <script src="config.js"></script>
-  <script src="catalog.js?v=20260915a"></script>
+  <!-- [요청] 제품추천 공개 앱 분리 — 이 앱 자신의 상대경로(/api/catalog/:code)만 호출한다.
+       메인 관리 시스템 도메인은 이 페이지(브라우저) 쪽에서 전혀 알지 못한다(서버가 대신 내부 API로 조회). -->
+  <script src="catalog.js?v=20260917a"></script>
 </body>
 </html>

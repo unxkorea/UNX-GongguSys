@@ -2,7 +2,7 @@
   "mailBcc": "",
   "adminPassword": "djsel1!",
   "headless": false,
-  "catalogPublicBaseUrl": "https://unx-company-gonggu.vercel.app/recommend/",
+  "catalogPublicBaseUrl": "",
   "instagram": {
     "username": "unx_judy",
     "password": "djsdprtm1!"

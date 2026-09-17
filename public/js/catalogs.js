@@ -9,6 +9,15 @@ let selectedProductIds = []; // 모달 내부 선택 상태 (순서 보존)
 let prefillNickname = ''; // 닉네임 prefill 상태
 let sortableInstance = null;
 
+// [요청] 제품추천 공개 앱 분리 — 공개 URL이 이제 이 서버 도메인(/recommend/)이 아니라
+//   완전히 다른 앱(apps/public/recommend)의 도메인이라 안전한 기본값이 없다. 설정 탭
+//   "추천 카탈로그 공개 URL"을 입력해야만 링크를 만들고, 비어있으면 null(호출부가 경고 표시).
+function catalogPublicUrl(code) {
+  const base = (window.CATALOG_PUBLIC_BASE_URL || '').trim();
+  if (!base) return null;
+  return `${base}?c=${encodeURIComponent(code)}`;
+}
+
 async function loadCatalogs() {
   try {
     const res = await fetch('/api/catalogs');
@@ -53,8 +62,10 @@ function renderCatalogs() {
 
   let prevNickname = null;
   tbody.innerHTML = list.map(c => {
-    const baseUrl = (window.CATALOG_PUBLIC_BASE_URL || `${location.origin}/recommend/`);
-    const url = `${baseUrl}?c=${encodeURIComponent(c.code)}`;
+    const url = catalogPublicUrl(c.code);
+    const urlCell = url
+      ? `<span class="url-cell">${esc(url)}</span><button class="btn btn-outline copy-btn" onclick="copyText('${esc(url)}')">복사</button>`
+      : `<span style="color:#ef4444;font-size:12px">설정에서 공개 URL을 먼저 입력하세요</span>`;
     const isGroup = sort === 'nickname' && c.influencerNickname === prevNickname;
     const nickCell = isGroup
       ? `<td><span style="color:#9ca3af">↳</span></td>`
@@ -66,7 +77,7 @@ function renderCatalogs() {
       <td>${esc(c.title || '-')}</td>
       <td style="text-align:center">${(c.productIds || []).length}</td>
       <td style="text-align:center">${c.viewCount || 0}</td>
-      <td><span class="url-cell">${esc(url)}</span><button class="btn btn-outline copy-btn" onclick="copyText('${esc(url)}')">복사</button></td>
+      <td>${urlCell}</td>
       <td style="font-size:12px;color:#6b7280">${esc(created)}</td>
       <td>
         <button class="btn btn-outline btn-sm" onclick="openCatalogModal(${c.id}, 'edit')">수정</button>
@@ -245,12 +256,12 @@ async function submitCatalog() {
     return;
   }
   // 결과 표시 (편집 시 URL 동일, 타이틀만 "수정됨"으로)
-  const baseUrl = (window.CATALOG_PUBLIC_BASE_URL || `${location.origin}/recommend/`);
-  const publicUrl = `${baseUrl}?c=${encodeURIComponent(data.catalog.code)}`;
-  document.getElementById('catalogResultUrl').textContent = publicUrl;
+  const publicUrl = catalogPublicUrl(data.catalog.code);
+  document.getElementById('catalogResultUrl').textContent = publicUrl
+    || '⚠ 설정 탭에서 "추천 카탈로그 공개 URL"을 먼저 입력해주세요.';
   document.getElementById('catalogResultTitle').textContent = isEdit ? '카탈로그 수정됨' : '카탈로그 생성됨';
   document.getElementById('catalogResultBox').style.display = 'flex';
-  document.getElementById('catalogResultBox').dataset.url = publicUrl;
+  document.getElementById('catalogResultBox').dataset.url = publicUrl || '';
   await loadCatalogs();
 }
 

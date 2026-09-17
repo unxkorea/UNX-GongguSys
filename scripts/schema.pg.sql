@@ -277,8 +277,9 @@ create index if not exists idx_catalogs_nickname  on catalogs(influencer_nicknam
 
 -- [요청] 추천 카탈로그 페이지 — 공개 URL용 조회 함수
 --   [요청] Railway 전환 1단계 — server.js의 GET /api/public/catalog/:code 가 catalogsRepo.getPublicByCode()로 호출.
+--   [요청] 제품추천 공개 앱 분리 — 이제 GET /internal/api/catalogs/:code(서버 간 인증)가 호출한다.
 --   code 일치 시 view_count +1, viewed_at 갱신, 제품+사진을 product_ids 순서대로 JSON 반환.
---   미존재 시 null 반환.
+--   미존재 시 null 반환. memo(내부 메모)는 공개 응답에서 제외.
 create or replace function get_catalog_by_code(p_code text)
 returns json
 language plpgsql
@@ -305,7 +306,7 @@ begin
     select
       p.id, p.name, p.brand_name, p.product_name, p.campaign_type,
       p.category, p.usp, p.offer_message, p.product_link,
-      p.announce_example_link, p.memo, p.age_range,
+      p.announce_example_link, p.age_range,
       o.ord,
       coalesce(
         (select json_agg(pp.url order by pp.sort_order)
@@ -333,7 +334,6 @@ begin
           'offerMessage',        offer_message,
           'productLink',         product_link,
           'announceExampleLink', announce_example_link,
-          'memo',                memo,
           'ageRange',            age_range,
           'photos',              photos
         ) order by ord

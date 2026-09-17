@@ -6,11 +6,16 @@
 
 [ 요청사항 ]
 
+## 인플루언서 비밀번호 인증 + 제안서 열람·다운로드 (apps/public/recommend 확장, 4단계 이후 착수)
+`apps/public/recommend`(제품추천 공개 앱)에 공개 승인된 제품 목록 → 인플루언서별 비밀번호 인증 → 본인에게 배정된 제안서 열람·다운로드 기능을 추가. **선행 조건 — 아직 준비 안 됨**: ① 인플루언서 비밀번호/제안서 배정을 저장할 DB 스키마가 없음 ② `[Railway 전환 4단계] 파일 저장소`(문서 파일 저장·서명 URL 발급)가 아직 미착수. 이 둘이 끝나야 정식 착수 — 그 전엔 반쪽짜리 기능이 되므로 보류.
+- 붙여야 할 요건(합의된 사양, 4단계 이후 구현 시 적용): 비밀번호 해시 저장(bcryptjs), 로그인 시도 제한(express-rate-limit), 제안서·파일 요청마다 대상 인플루언서 권한 검사, 관리자 세션과 완전히 분리된 별도 세션, **파일 URL만 알아도 인증 우회 불가**(서명 URL/토큰 방식 — 4단계 실행계획의 `presign(key, ttl)` 어댑터를 그대로 재사용 가능).
+- 4단계가 끝나면 이어서 정식 요청으로 진행.
+
 ## [Railway 전환 3단계] 활동 로그 공통 모듈 — 접속/CRUD/에러 전부 기록 + 관리자 트래킹 UI
 admin/staff 각 계정이 로그인 후 접속한 메뉴, 수행한 CRUD, 발생한 에러를 **모두** 로그로 저장. 관리자가 UI에서 계정별·기간별·유형별로 추적 가능. 로깅은 공통 모듈로 만들어 server.js·매크로(index.js/checkReplies.js)·cron 어디서든 같은 방식으로 호출.
 
 ## [Railway 전환 4단계] 파일 저장소 — 이미지 + PDF/Word 등 문서, 관리자 전용 접근
-추후 이미지 외 PDF·Word 등 문서 파일 업로드 예정. 관리자 페이지이므로 로그인한 관리자만 접근 가능해야 하고 보안이 중요. 현재 방식(Supabase Storage 공개 버킷 + `assets/` 3역할 혼재)은 폐기. 기존 `[ 요청사항 ]`의 "제안서 이미지 경로 정리" 건은 이 단계에 흡수.
+추후 이미지 외 PDF·Word 등 문서 파일 업로드 예정. 관리자 페이지이므로 로그인한 관리자만 접근 가능해야 하고 보안이 중요. 현재 방식(Supabase Storage 공개 버킷 + `assets/` 3역할 혼재)은 폐기. 기존 `[ 요청사항 ]`의 "제안서 이미지 경로 정리" 건은 이 단계에 흡수. **이 작업이 끝나면 `product_photos.url` 등 DB에 저장된 이미지 경로가 전부 Supabase 공개 URL → `/api/files/<uuid>`(서명 URL) 형태로 바뀐다** — 그 결과로 (a) 제품추천 카탈로그 공개 API가 사진을 "누구나 여는 공개 URL"로 노출하던 문제도 같이 해결되고, (b) 바로 위 "인플루언서 비밀번호 인증 + 제안서 열람·다운로드" 요청의 선행 조건이 채워진다.
 
 
 ## 제안서 이미지 경로 정리 — Storage 단일 원본 + temp 캐시
@@ -62,6 +67,23 @@ admin/staff 각 계정이 로그인 후 접속한 메뉴, 수행한 CRUD, 발생
 
 
 [ 작업완료 ]
+## 제품추천 공개 앱 — `apps/public/recommend` 독립 서버 앱으로 분리 (Gonggu-Recommend) (26.09.17)
+공개 카탈로그 페이지를 Vercel 대신, 같은 레포 안의 완전히 독립된 Express 앱(`apps/public/recommend`, Railway 서비스명 `Gonggu-Recommend`)으로 분리. 메인 앱(UNX-GongguSys)은 데이터/API만 갖고, 공개 앱은 서버 간 인증이 걸린 내부 API로만 그 데이터를 가져다 쓴다. 관리자 화면·API는 이 앱에 아예 없어 해당 경로는 전부 404.
+- **신규 [apps/public/recommend/](../apps/public/recommend/)**: 독립 `package.json`(express만, 메인 의존성 없음) + `server.js`(정적 서빙 + `GET /api/catalog/:code`가 메인 앱 내부 API를 서버 간 호출로 중계 + `/c/:code`→`/?c=:code` 리다이렉트 + 그 외 모든 경로 catch-all 404) + `public/index.html`·`style.css`·`catalog.js`(구 `public/recommend/`에서 이전, `catalog.js`는 `CATALOG_API_BASE` 대신 자기 자신의 상대경로 `/api/catalog/:code`만 호출하도록 단순화 — 브라우저가 메인 앱 주소를 아예 모름). `apps/public`을 외부 공개 앱들의 네임스페이스로 잡아둬서, 나중에 인플루언서 포털 등 형제 폴더가 붙기 쉽게 함.
+- **[server.js](../server.js)**: `GET /internal/api/catalogs/:code` 신설 — `X-Internal-Key` 헤더가 `INTERNAL_API_KEY` 환경변수와 `crypto.timingSafeEqual`로 정확히 일치해야 응답, 아니면(세션 인증과 무관하게) 존재 자체를 숨기려 404. `authRequired`보다 앞에 등록(쿠키/세션과 별개 인증 계층), rate limit(`express-rate-limit`, 15분당 300회) 적용. 기존 무인증+CORS `*`였던 `GET /api/public/catalog/:code`(및 그 `OPTIONS` 핸들러)는 삭제하고, `authRequired`의 `/recommend`·`/api/public/` 화이트리스트도 함께 제거(더는 필요 없는 공개 경로).
+- **memo 필드 공개 노출 수정**: [src/repo/catalogsRepo.js](../src/repo/catalogsRepo.js)의 `getPublicByCodeJson()`과 [scripts/schema.pg.sql](../scripts/schema.pg.sql)의 `get_catalog_by_code` 함수 양쪽에서 제품의 `memo`(내부 메모) 필드를 공개 응답에서 제거 — 지난 리뷰에서 찾은 기존 노출 문제 해결. **⚠ PG 함수 변경분은 `npm run db:schema`를 Railway Postgres에 실제로 재적용해야 반영됨(멱등 `create or replace`, 제가 프로덕션 DB에 직접 실행하지 않음 — 배포 전/후 한 번 실행 필요).**
+- **[public/recommend/](../public/recommend/) 폴더 전체 삭제**(`index.html`/`style.css`/`catalog.js`/`config.js`/`vercel.json`) — apps/public/recommend로 완전 이전.
+- **공유 링크 생성 로직 정리**: [public/js/catalogs.js](../public/js/catalogs.js)에 `catalogPublicUrl(code)` 헬퍼 추가 — `settings.catalogPublicBaseUrl`이 비어있으면(이제 `${location.origin}/recommend/`로 자동 폴백하지 않음, 그 경로가 사라졌으므로) 카탈로그 목록·생성 결과 양쪽에 깨진 링크 대신 "설정에서 공개 URL을 먼저 입력하세요" 경고 표시. [settings.json](../settings.json)의 `catalogPublicBaseUrl`을 기존 Vercel 주소에서 빈 문자열로 초기화. [views/pages/settings.ejs](../views/pages/settings.ejs) 라벨/설명 문구를 새 구조에 맞게 갱신.
+- **[CLAUDE.md](../CLAUDE.md)** "공개 추천 카탈로그" 섹션을 새 구조(apps/public/recommend + 내부 API 키, Railway 설정값)로 다시 씀.
+- **범위에서 제외한 것(정직하게 명시)**: ① 인플루언서 비밀번호 인증 + 제안서 열람·다운로드는 선행 조건(DB 스키마, 4단계 파일저장소) 미비로 보류 — 별도 요청사항 항목으로 등록해둠. ② "파일(사진) 직접 접근 차단"은 이번 분리와 무관하게 아직 불가능 — 제품 사진이 여전히 Supabase 공개 버킷 URL로 응답에 그대로 담김(4단계에서 해소 예정). ③ 관리자 도메인의 직원 전용 접근 제한(IP 제한 등)은 별도 인프라 설정 — 이번 작업으로 해결된 게 아님.
+- **검증**: `node --check`로 `server.js`·`apps/public/recommend/server.js`·`public/js/catalogs.js`·`src/repo/catalogsRepo.js` 전부 통과. `DB_MODE=json` 로컬에서 메인 서버(포트 4001)와 새 앱(포트 4101, `MAIN_APP_URL`로 연결)을 동시에 띄우고 테스트 카탈로그 2건(제품 하나엔 임시 `memo` 값 주입)으로 확인: ① `apps/public/recommend`의 `/products` `/settings` `/api/accounts` `/api/login` `/run` `/replies` 전부 404 ② 메인 앱 `/internal/api/catalogs/:code`가 키 없음/틀린 키 → 404, 올바른 키 → 200(응답에 `memo` 없음 확인) ③ 존재하지 않는 코드 → 404 ④ 코드 A/B가 서로 다른 카탈로그만 정확히 반환(교차 노출 없음) ⑤ `/c/:code` → `/?c=:code` 302 리다이렉트 ⑥ 구 `/api/public/catalog/:code`는 404(완전히 제거됨) 확인. 테스트에 쓴 `products.json` 임시 변경은 `git checkout`으로 원복, 테스트용 `catalogs.json`(비추적 파일)은 삭제.
+- **구현 후 알려드리는 Railway 설정값**(실제 코드 기준):
+  - **Gonggu-Recommend 서비스**: Root Directory = `apps/public/recommend` (Builder는 Nixpacks 자동 감지 — `package.json`만 있고 Dockerfile이 없어 메인 앱의 무거운 Playwright 이미지와 무관하게 가볍게 빌드됨). Build Command는 기본값(비워두면 Nixpacks가 `npm install`), Start Command는 `npm start`(=`node server.js`).
+  - **환경변수(Gonggu-Recommend)**: `MAIN_APP_URL`(UNX-GongguSys 서비스 주소 — Railway 대시보드의 변수 참조 기능으로 그 서비스의 프라이빗 도메인을 연결하는 걸 권장, 예: `${{UNX-GongguSys.RAILWAY_PRIVATE_DOMAIN}}` 형태로 참조 후 포트 조합 — 정확한 참조 문법은 Railway 대시보드의 변수 추가 UI에서 서비스 선택 시 자동완성됨), `INTERNAL_API_KEY`(임의의 긴 랜덤 문자열, 아래 UNX-GongguSys와 동일 값).
+  - **환경변수(UNX-GongguSys, 기존 서비스에 추가)**: `INTERNAL_API_KEY` — Gonggu-Recommend와 **정확히 같은 값**.
+  - **관리 UI 설정**: 배포 후 발급된 Gonggu-Recommend 도메인을 설정 탭 "추천 카탈로그 공개 URL"에 입력(끝에 `/`).
+- **남은 일(이번 작업으로 해결 안 됨, 안내만)**: ① Railway Postgres에 `npm run db:schema` 재적용(memo 제거 함수 반영) ② 관리자 도메인(UNX-GongguSys)에 직원 전용 접근 제한(IP 허용목록/VPN 등)을 원하면 별도 인프라 설정 필요 — 이번 분리로 자동 해결되지 않음 ③ Vercel 프로젝트 삭제는 사용자가 Vercel 대시보드에서 직접(급하지 않으면 나중에) ④ 도메인 마스킹/커스텀 도메인은 보유 도메인 생기면 별도 진행.
+
 ## /portal — 화면(레이아웃 포함) 완전 분리복제, 제품관리 시스템 개편 영향 차단 (26.09.16)
 제품관리 시스템 전체를 레이아웃부터 새로 갈아엎을 예정이라, 바로 아래 "인포크/메일 제안 담당자용 전용 URL" 건에서 만든 `/portal/*`(같은 `views/layout.ejs`/`tabs.ejs`/`app.css`/`util.js` 등 공유 자산을 쓰던 버전)은 그 개편에 함께 휩쓸리는 구조였음. 담당자가 계속 써야 하는 화면이라 이번 요청으로 **화면(레이아웃·CSS·페이지 JS) 자체를 완전히 독립된 스냅샷 사본**으로 교체 — 이전 요청의 얕은 구현을 대체.
 - **신규 [views/portal/layout.ejs](../views/portal/layout.ejs)**: 공유 `views/layout.ejs`/`partials/header`/`partials/tabs`를 전혀 include하지 않는 자체 HTML 뼈대(헤더+3탭 네비만). `/js/portal/*`·`/css/portal.css`만 참조.

@@ -74,7 +74,7 @@ UI에서 "발송 시작"을 누르면 [server.js](server.js)가 `node src/index.
 - **롤백 모드: JSON** — `DB_MODE=json` 환경변수로 기존 JSON 파일 I/O 복귀. 각 repo가 `config.USE_DB` 플래그로 내부 분기(`config.USE_SUPABASE`는 하위 호환 별칭).
 - pg Pool 싱글톤 + 헬퍼(`query/one/withTx/insertMany/isUniqueViolation`): [src/db.js](src/db.js). `DATABASE_URL` 없으면 require 시점에 throw하므로 repo들은 `require('../db')`를 함수 안에서 지연 로드한다.
 - 타입 파서: `date`는 `'YYYY-MM-DD'` 문자열, `timestamptz`는 ISO 문자열, `int8`은 number로 고정(PostgREST 시절 반환 형태와 동일하게 맞춤). 새 SQL을 쓸 때 Date 객체를 기대하지 말 것.
-- 공개 카탈로그는 anon 키 대신 서버의 `GET /api/public/catalog/:code`(인증 면제, CORS 허용)가 `catalogsRepo.getPublicByCode()`로 응답한다.
+- 공개 카탈로그는 anon 키 대신 서버의 `GET /internal/api/catalogs/:code`(세션이 아니라 `X-Internal-Key` 공유 비밀키로 인증, [apps/public/recommend](apps/public/recommend)만 호출)가 `catalogsRepo.getPublicByCode()`로 응답한다.
 - 설정값(`settings.json`)만은 DB로 옮기지 않고 로컬 파일 유지 — `config.MAIL_BCC` getter가 동기 접근해서.
 
 ### 핵심 도메인 규칙
@@ -134,18 +134,19 @@ UI에서 "발송 시작"을 누르면 [server.js](server.js)가 `node src/index.
 - `catalogs` (인플루언서 맞춤 추천 카탈로그 — code/product_ids/view_count)
 - `employees`(직원 겸 로그인 계정 — [요청] Railway 전환 2단계 참고) + `phrases`(직원별 자주 쓰는 문구), `parts` + `employee_parts`(공동구매 파트, M:N), `notifications`(파트별 알림, 정의만·미사용), `settings`(미사용, 설정은 settings.json), `cafe24_tokens`(카페24 OAuth 토큰)
 - SQL 함수: `increment_weekly_count(account_id, week_key)` / `adjust_weekly_count(account_id, week_key, delta)` — 원자적 카운터 증감
-- SQL 함수: `get_catalog_by_code(p_code)` — 공개 카탈로그 1건 조회(view_count 자동 증가). `catalogsRepo.getPublicByCode()`가 호출.
-- RLS·anon 역할 없음. DB 접근은 서버(`DATABASE_URL`)뿐이고, 외부 노출 경로는 `/api/public/catalog/:code` 하나다.
+- SQL 함수: `get_catalog_by_code(p_code)` — 공개 카탈로그 1건 조회(view_count 자동 증가, `memo`는 응답에서 제외). `catalogsRepo.getPublicByCode()`가 호출.
+- RLS·anon 역할 없음. DB 접근은 서버(`DATABASE_URL`)뿐이고, 외부에서 직접 닿는 유일한 경로는 `GET /internal/api/catalogs/:code`(아래 참고, 세션이 아니라 공유 비밀키로 인증)다.
 
-### 공개 추천 카탈로그 — [public/recommend/](public/recommend/) (Vercel 분리 배포)
+### 공개 추천 카탈로그 — [apps/public/recommend/](apps/public/recommend/) (같은 레포, 별도 Railway 서비스로 분리)
 
-관리 UI의 "추천" 탭에서 인플루언서별 카탈로그 생성 → `/recommend/?c=<code>` 공개 URL 발급.
-- **분리 배포 이유(과거)**: 관리자 PC가 꺼져 있어도 링크가 열려야 했음. 지금은 관리 서버가 Railway에서 24시간 돌므로 `https://<railway-domain>/recommend/?c=<code>`로 서버가 직접 서빙해도 된다. Vercel 배포를 유지할 수도 있음(아래 `CATALOG_API_BASE` 필요).
-- 파일 구성: `index.html` / `style.css` / `catalog.js` / `config.js`(`window.CATALOG_API_BASE`) / `vercel.json`(`/c/:code` rewrite).
-- 데이터 흐름: 페이지가 `GET {CATALOG_API_BASE}/api/public/catalog/:code`를 fetch → 서버가 `get_catalog_by_code` SQL 함수(DB 모드) 또는 JSON 조립(JSON 모드) → 제품 + 사진 + view_count 자동 증가. 404면 "존재하지 않는 카탈로그".
-- `CATALOG_API_BASE`: 빈 문자열이면 같은 도메인(서버 직접 서빙·로컬). Vercel에 분리 배포하면 Railway 앱 도메인을 넣는다. 이 라우트만 `Access-Control-Allow-Origin: *`.
-- Vercel 배포: GitHub 연동 → Add New Project → Root Directory = `public/recommend` → Framework `Other`. 기본 도메인 `xxx.vercel.app` 사용.
-- 관리 UI 설정 → "추천 카탈로그 공개 URL"에 공개 도메인 입력. 미입력 시 `${currentOrigin}/recommend/`로 폴백.
+관리 UI의 "추천" 탭에서 인플루언서별 카탈로그 생성 → 공개 URL 발급. 이 URL은 메인 앱이 아니라 **완전히 분리된 독립 Express 앱**(`apps/public/recommend`, Railway 서비스명 `Gonggu-Recommend`)에서만 열린다 — 관리자 화면·API가 이 앱엔 아예 없고 정의되지 않은 모든 경로는 404. 브라우저는 메인 앱 주소를 전혀 모른다.
+- **분리 이유**: 카탈로그 링크만 받은 외부인(인플루언서 등)이 관리 시스템 도메인의 존재 자체를 알 수 없게 하기 위함(로그인 페이지 등 공격 표면을 원천적으로 숨김). 관리자 PC가 꺼져 있어도 링크가 열려야 한다는 예전 이유(Vercel 분리)는 관리 서버가 Railway에서 24시간 도는 지금은 해당 없음.
+- **데이터 흐름(2단계, 서버 간 인증)**: 브라우저 → `apps/public/recommend`의 `GET /api/catalog/:code`(같은 도메인) → 그 서버가 메인 앱의 `GET /internal/api/catalogs/:code`를 `X-Internal-Key` 헤더(`INTERNAL_API_KEY` 환경변수, 양쪽 서비스 동일값)로 호출 → 메인 앱이 `get_catalog_by_code`(DB 모드) / JSON 조립(JSON 모드)으로 응답. 헤더 누락·불일치 시 메인 앱은 (존재 자체를 숨기려) 401이 아니라 404로 응답. `Access-Control-Allow-Origin` 헤더는 더 이상 필요 없음(브라우저가 직접 크로스오리진 호출을 안 하므로).
+- 파일 구성(`apps/public/recommend/`): `server.js`(정적 서빙 + `/api/catalog/:code` 중계 + `/c/:code` 리다이렉트 + 그 외 전부 404) / `package.json`(express만, 메인 앱 의존성 없음) / `public/index.html`·`style.css`·`catalog.js`.
+- **Railway 설정**: `Gonggu-Recommend` 서비스의 Root Directory = `apps/public/recommend`(Nixpacks 자동 빌드, Dockerfile 아님). 환경변수 `MAIN_APP_URL`(메인 서비스 주소, 프라이빗 네트워킹 가능하면 `http://<메인 서비스>.railway.internal:<PORT>`) + `INTERNAL_API_KEY`(메인 서비스와 동일 값). 메인 서비스에도 같은 `INTERNAL_API_KEY`를 설정해야 함.
+- 관리 UI 설정 → "추천 카탈로그 공개 URL"에 `Gonggu-Recommend`의 실제 도메인 입력(끝에 `/`). **미입력 시 더 이상 이 서버 도메인으로 자동 폴백하지 않음**(그 경로는 이제 존재하지 않음) — 대신 카탈로그 목록에 경고가 뜬다.
+- **알려진 한계**: 제품 사진은 아직 Supabase Storage 공개 버킷 URL이 응답에 그대로 담겨 있어, 그 URL을 아는 사람은 이 앱을 거치지 않고도 직접 열 수 있다. `[Railway 전환 4단계] 파일 저장소`(서명 URL 방식으로 교체)가 끝나야 해소됨.
+- **향후 확장**: `apps/public`을 외부 공개 앱들의 네임스페이스로 잡아뒀다 — 인플루언서 비밀번호 인증 + 제안서 열람·다운로드(4단계 이후 착수 예정, [md/ModifyHistory.md](md/ModifyHistory.md) 참고)도 이 아래 형제 폴더로 추가될 예정.
 
 ### JSON 파일 (롤백용으로 유지)
 

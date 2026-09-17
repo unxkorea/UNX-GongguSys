@@ -12,17 +12,17 @@
     </div>
   </div>
 
-  <!-- [요청] 추천 카탈로그 페이지 — 공개 URL 기본 도메인 -->
+  <!-- [요청] 제품추천 공개 앱 분리 — 공개 URL 기본 도메인 -->
   <div class="card">
     <div class="card-title">추천 카탈로그 공개 URL</div>
     <div class="form-group" style="max-width:560px">
-      <label>Vercel 배포 도메인 — 공유 링크 생성 시 이 도메인이 쓰입니다 (비우면 현재 호스트의 <code>/recommend/</code>)</label>
+      <label>공개 앱(apps/public/recommend, Gonggu-Recommend) 도메인 — 공유 링크 생성 시 이 도메인이 쓰입니다</label>
       <div style="display:flex;gap:8px">
-        <input type="text" id="settingsCatalogBaseUrl" placeholder="예: https://my-catalog.vercel.app/">
+        <input type="text" id="settingsCatalogBaseUrl" placeholder="예: https://gonggu-recommend-production.up.railway.app/">
         <button class="btn btn-primary btn-sm" onclick="saveCatalogBaseUrl()" style="white-space:nowrap">저장</button>
       </div>
       <div style="font-size:12px;color:#94a3b8;margin-top:6px">
-        * 끝에 슬래시 자동 추가됨. 미설정 시 로컬 테스트용 URL이 발급됨.
+        * 이 서버(관리 시스템)와는 다른 도메인입니다 — 여기가 비어있으면 카탈로그 목록에 링크 대신 경고가 표시됩니다.
       </div>
     </div>
   </div>

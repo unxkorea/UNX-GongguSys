@@ -1,7 +1,7 @@
-// [요청] 추천 카탈로그 페이지 — 공개 갤러리 + 모달 (Vercel 배포용)
+// [요청] 제품추천 공개 앱 분리 — 공개 갤러리 + 모달
 //   URL 파라미터 ?c=<code> 또는 ?code=<code> 로 코드 추출
-//   [요청] Railway 전환 1단계 — Supabase RPC 직접 호출 대신 관리 서버의 공개 API
-//   GET {CATALOG_API_BASE}/api/public/catalog/:code 를 fetch → 렌더 (config.js에서 주소 설정)
+//   이 앱 자신의 GET /api/catalog/:code(같은 도메인)를 fetch → 렌더. 그 라우트가 서버 쪽에서
+//   메인 관리 시스템의 내부 API를 대신 호출한다 — 브라우저는 메인 시스템 주소를 전혀 모른다.
 
 (function () {
   'use strict';
@@ -35,11 +35,6 @@
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
-  function apiBase() {
-    const b = typeof window.CATALOG_API_BASE === 'string' ? window.CATALOG_API_BASE.trim() : '';
-    return b.replace(/\/+$/, '');
-  }
-
   async function loadCatalog() {
     const code = getCodeFromUrl();
     if (!code) {
@@ -48,7 +43,7 @@
     }
     let data = null;
     try {
-      const res = await fetch(apiBase() + '/api/public/catalog/' + encodeURIComponent(code), { cache: 'no-store' });
+      const res = await fetch('/api/catalog/' + encodeURIComponent(code), { cache: 'no-store' });
       if (res.status === 404) {
         showError('존재하지 않거나 만료된 카탈로그입니다.');
         return;

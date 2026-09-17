@@ -11,6 +11,7 @@ const accountManager = require('./src/accountManager');
 // [요청] Railway 전환 2단계 — 관리자 개별 계정(ID/PW) + 역할·파트
 const employeesRepo = require('./src/repo/employeesRepo');
 const partsRepo = require('./src/repo/partsRepo');
+const catalogsRepo = require('./src/repo/catalogsRepo');
 const guard = require('./src/auth/guard');
 const authState = require('./src/auth/state');
 
@@ -78,8 +79,6 @@ function authRequired(req, res, next) {
   const needsAuth = !!password || authState.hasLoginAccounts();
   if (!needsAuth) return next();                     // 아무 인증 수단도 없음 → 로컬 전용 운영
   if (req.path === '/favicon.ico') return next();   // favicon은 인증 없이 허용 (로그인 페이지 탭 아이콘)
-  if (req.path.startsWith('/recommend')) return next(); // [요청] 추천 카탈로그 공개 페이지 — 링크만 있으면 인증 없이 열람
-  if (req.path.startsWith('/api/public/')) return next(); // [요청] Railway 전환 1단계 — 공개 카탈로그 API (anon 키 RPC 대체)
   if (req.path === '/privacy') return next();              // [요청] Gmail API 발송 전환 — OAuth 게시용 개인정보처리방침 공개 페이지
   if (req.session && req.session.authenticated) return next();
   // API 호출은 401, 그 외는 /login으로 리다이렉트
@@ -166,6 +165,37 @@ app.get('/api/auth/status', (req, res) => {
     // [요청] Railway 전환 2단계 — 헤더에 로그인한 사람 표시 + 화면단 role 분기용
     user: user ? { name: user.name, loginId: user.loginId, role: user.role, parts: user.parts } : null,
   });
+});
+
+// [요청] 제품추천 공개 앱 분리 — apps/public/recommend가 서버 간 인증으로 부르는 내부 전용 API.
+//   세션/쿠키와 무관한 별도 인증 계층이라 authRequired보다 앞에 둔다. X-Internal-Key 헤더가
+//   INTERNAL_API_KEY 환경변수와 정확히 일치해야 응답 — 누락·불일치 모두 (존재 자체를 숨기려) 404로
+//   답한다. 브라우저는 이 라우트를 직접 호출하지 않는다(apps/public/recommend 서버만 호출).
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
+const internalApiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+function requireInternalKey(req, res, next) {
+  const provided = req.get('X-Internal-Key') || '';
+  const expected = INTERNAL_API_KEY;
+  const ok = expected.length > 0 && provided.length === expected.length &&
+    crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
+  if (!ok) return res.status(404).json({ error: 'not_found' });
+  next();
+}
+app.get('/internal/api/catalogs/:code', internalApiLimiter, requireInternalKey, async (req, res) => {
+  try {
+    const data = await catalogsRepo.getPublicByCode(req.params.code);
+    if (!data) return res.status(404).json({ error: 'not_found' });
+    res.set('Cache-Control', 'no-store');
+    res.json(data);
+  } catch (e) {
+    console.error('[internal catalog]', e.message);
+    res.status(500).json({ error: 'internal' });
+  }
 });
 
 // 이하 모든 라우트는 인증 미들웨어 뒤
@@ -1128,31 +1158,8 @@ app.get('/api/leads/reminders-due', async (req, res) => {
 
 // ─── 추천 카탈로그 API ───
 // [요청] 추천 카탈로그 페이지 — 인플루언서별 큐레이션 공유 링크
-const catalogsRepo = require('./src/repo/catalogsRepo');
-
-// [요청] Railway 전환 1단계 — 공개 카탈로그 조회 API (인증 면제, authRequired에서 /api/public/ 통과)
-//   예전엔 public/recommend 페이지가 브라우저에서 Supabase anon 키로 RPC를 직접 호출했다.
-//   Railway Postgres엔 anon 경로가 없으므로 서버가 대신 조회한다. 호출마다 view_count +1.
-//   Vercel에 분리 배포된 추천 페이지가 다른 도메인에서 호출할 수 있도록 CORS 허용(이 라우트만, 읽기 전용).
-app.options('/api/public/catalog/:code', (req, res) => {
-  res.set('Access-Control-Allow-Origin', '*');
-  res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type');
-  res.sendStatus(204);
-});
-app.get('/api/public/catalog/:code', async (req, res) => {
-  res.set('Access-Control-Allow-Origin', '*');
-  res.set('Cache-Control', 'no-store');
-  try {
-    const data = await catalogsRepo.getPublicByCode(req.params.code);
-    if (!data) return res.status(404).json({ error: 'not_found' });
-    res.json(data);
-  } catch (e) {
-    console.error('[public catalog]', e.message);
-    res.status(500).json({ error: 'internal' });
-  }
-});
-
+// [요청] 제품추천 공개 앱 분리 — 공개 조회(구 /api/public/catalog/:code, 무인증+CORS *)는 제거.
+//   같은 데이터를 이제 /internal/api/catalogs/:code(서버 간 인증)로만 내보낸다.
 app.get('/api/catalogs', async (req, res) => {
   try {
     res.json(await catalogsRepo.list());

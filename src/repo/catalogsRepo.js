@@ -160,7 +160,7 @@ async function getPublicByCodeJson(code) {
       offerMessage: p.offerMessage || null,
       productLink: p.productLink || null,
       announceExampleLink: p.announceExampleLink || null,
-      memo: p.memo || null,
+      // [요청] 제품추천 공개 앱 분리 — memo(내부 메모)는 공개 응답에서 제외
       ageRange: p.ageRange || null,
       photos: p.photos || [],
     }));
