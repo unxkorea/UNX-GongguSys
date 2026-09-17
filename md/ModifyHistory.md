@@ -82,7 +82,8 @@ admin/staff 각 계정이 로그인 후 접속한 메뉴, 수행한 CRUD, 발생
   - **환경변수(Gonggu-Recommend)**: `MAIN_APP_URL`(UNX-GongguSys 서비스 주소 — Railway 대시보드의 변수 참조 기능으로 그 서비스의 프라이빗 도메인을 연결하는 걸 권장, 예: `${{UNX-GongguSys.RAILWAY_PRIVATE_DOMAIN}}` 형태로 참조 후 포트 조합 — 정확한 참조 문법은 Railway 대시보드의 변수 추가 UI에서 서비스 선택 시 자동완성됨), `INTERNAL_API_KEY`(임의의 긴 랜덤 문자열, 아래 UNX-GongguSys와 동일 값).
   - **환경변수(UNX-GongguSys, 기존 서비스에 추가)**: `INTERNAL_API_KEY` — Gonggu-Recommend와 **정확히 같은 값**.
   - **관리 UI 설정**: 배포 후 발급된 Gonggu-Recommend 도메인을 설정 탭 "추천 카탈로그 공개 URL"에 입력(끝에 `/`).
-- **남은 일(이번 작업으로 해결 안 됨, 안내만)**: ① Railway Postgres에 `npm run db:schema` 재적용(memo 제거 함수 반영) ② 관리자 도메인(UNX-GongguSys)에 직원 전용 접근 제한(IP 허용목록/VPN 등)을 원하면 별도 인프라 설정 필요 — 이번 분리로 자동 해결되지 않음 ③ Vercel 프로젝트 삭제는 사용자가 Vercel 대시보드에서 직접(급하지 않으면 나중에) ④ 도메인 마스킹/커스텀 도메인은 보유 도메인 생기면 별도 진행.
+- **후속(같은 날)**: 커밋·`git push origin main` 완료, `npm run db:schema`를 Railway Postgres에 직접 실행해 반영 확인(`get_catalog_by_code` 함수에 더 이상 `memo` 없음을 실제 조회로 검증). Gonggu-Recommend(사용자가 `UNX-Gonggu`로 개명) 서비스의 첫 배포가 **Dockerfile 빌드 시도로 실패**(Root Directory를 바꿔도 서비스에 남아있던 빌드 설정이 메인 앱의 루트 [Dockerfile](../Dockerfile)을 계속 찾음) — 신규 `apps/public/recommend/railway.json`(`builder: NIXPACKS` 명시)로 안전장치 추가. 그래도 실패하면 해당 서비스 Settings → Build에서 Builder를 Nixpacks로 직접 지정(또는 커스텀 Dockerfile Path 제거) 필요.
+- **남은 일(이번 작업으로 해결 안 됨, 안내만)**: ① 관리자 도메인(UNX-GongguSys)에 직원 전용 접근 제한(IP 허용목록/VPN 등)을 원하면 별도 인프라 설정 필요 — 이번 분리로 자동 해결되지 않음 ② Vercel 프로젝트 삭제는 사용자가 Vercel 대시보드에서 직접(급하지 않으면 나중에) ③ 도메인 마스킹/커스텀 도메인은 보유 도메인 생기면 별도 진행.
 
 ## /portal — 화면(레이아웃 포함) 완전 분리복제, 제품관리 시스템 개편 영향 차단 (26.09.16)
 제품관리 시스템 전체를 레이아웃부터 새로 갈아엎을 예정이라, 바로 아래 "인포크/메일 제안 담당자용 전용 URL" 건에서 만든 `/portal/*`(같은 `views/layout.ejs`/`tabs.ejs`/`app.css`/`util.js` 등 공유 자산을 쓰던 버전)은 그 개편에 함께 휩쓸리는 구조였음. 담당자가 계속 써야 하는 화면이라 이번 요청으로 **화면(레이아웃·CSS·페이지 JS) 자체를 완전히 독립된 스냅샷 사본**으로 교체 — 이전 요청의 얕은 구현을 대체.
