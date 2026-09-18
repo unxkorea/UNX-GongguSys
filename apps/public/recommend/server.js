@@ -8,7 +8,13 @@ const path = require('path');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
-const MAIN_APP_URL = (process.env.MAIN_APP_URL || '').replace(/\/+$/, '');
+// [요청] MAIN_APP_URL에 스킴(https://) 빠뜨리는 설정 실수 방지 — 있으면 그대로, 없으면 https:// 붙임
+function normalizeMainAppUrl(raw) {
+  const v = (raw || '').trim().replace(/\/+$/, '');
+  if (!v) return '';
+  return /^https?:\/\//i.test(v) ? v : `https://${v}`;
+}
+const MAIN_APP_URL = normalizeMainAppUrl(process.env.MAIN_APP_URL);
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
 
 // [요청] 예전 public/recommend/vercel.json의 헤더 정책을 그대로 재현
